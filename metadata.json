@@ -1,0 +1,6 @@
+{
+  "name": "CELLTRONIC ERP & CRM",
+  "description": "Sistema ERP y CRM completo para CELLTRONIC con autenticación Firebase Auth, control de acceso por roles (RBAC: CEO, Gerente, Supervisor, Cajero, Técnico), gestión de ventas POS, arqueos de caja, taller técnico con IA Gemini 3.7 Flash, inventario, recargas duales y caja chica.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@media print {
+  @page {
+    margin: 0;
+    size: auto;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Hide UI elements from print output */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Printable Modal Wrapper */
+  .print-modal-overlay {
+    position: fixed !important;
+    inset: 0 !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    z-index: 99999 !important;
+  }
+
+  /* 80mm Thermal Receipt Format (Default) */
+  .ticket-paper-80mm {
+    width: 80mm !important;
+    max-width: 80mm !important;
+    padding: 5mm !important;
+    margin: 0 auto !important;
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* 58mm Thermal Receipt Format (Mobile / Bluetooth) */
+  .ticket-paper-58mm {
+    width: 58mm !important;
+    max-width: 58mm !important;
+    padding: 2mm !important;
+    margin: 0 auto !important;
+    font-size: 9px !important;
+    line-height: 1.15 !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+}

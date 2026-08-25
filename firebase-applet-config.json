@@ -1,0 +1,12 @@
+{
+  "projectId": "celltronic-erp",
+  "appId": "1:360045410538:web:f6a0659aab64bc79563f93",
+  "apiKey": "AIzaSyBPfQ3JJSzklT3Zm_7p8rufMmmTff6GHhM",
+  "authDomain": "celltronic-erp.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "celltronic-erp.firebasestorage.app",
+  "messagingSenderId": "360045410538",
+  "measurementId": "",
+  "oAuthClientId": "",
+  "recaptchaSiteKey": ""
+}

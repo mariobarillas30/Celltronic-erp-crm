@@ -1,0 +1,163 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System user account with assigned role and permissions",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["CEO", "Supervisor", "Cajero"] },
+        "pin": { "type": "string", "description": "4-digit PIN for supervisor discount authorization" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Inventory product item or service",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "brand": { "type": "string" },
+        "model": { "type": "string" },
+        "costPrice": { "type": "number" },
+        "salePrice": { "type": "number" },
+        "stock": { "type": "number" },
+        "minStock": { "type": "number" },
+        "supplierId": { "type": "string" },
+        "supplierName": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["name", "category", "costPrice", "salePrice", "stock"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Provider of goods and repair replacement parts",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "contactPerson": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "POS sales receipt record",
+      "type": "object",
+      "properties": {
+        "ticketNumber": { "type": "string" },
+        "date": { "type": "string" },
+        "cashierUid": { "type": "string" },
+        "cashierName": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "subtotal": { "type": "number" },
+        "discountTotal": { "type": "number" },
+        "total": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "discountAuthorizedBy": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["ticketNumber", "date", "cashierUid", "total", "paymentMethod"]
+    },
+    "Repair": {
+      "title": "Repair",
+      "description": "Technical workshop device service ticket",
+      "type": "object",
+      "properties": {
+        "ticketNumber": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "customerDocumentId": { "type": "string" },
+        "deviceBrand": { "type": "string" },
+        "deviceModel": { "type": "string" },
+        "serialNumber": { "type": "string" },
+        "issueDescription": { "type": "string" },
+        "diagnosticNotes": { "type": "string" },
+        "status": { "type": "string" },
+        "estimatedCost": { "type": "number" },
+        "technicianNotes": { "type": "string" },
+        "devicePhotoUrl": { "type": "string" },
+        "documentPhotoUrl": { "type": "string" },
+        "receivedDate": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["ticketNumber", "customerName", "deviceBrand", "deviceModel", "issueDescription", "status"]
+    },
+    "Recharge": {
+      "title": "Recharge",
+      "description": "Mobile carrier balance recharge record with dual pricing",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "cashierUid": { "type": "string" },
+        "cashierName": { "type": "string" },
+        "operator": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "costPrice": { "type": "number" },
+        "salePrice": { "type": "number" },
+        "profit": { "type": "number" },
+        "notes": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["operator", "phoneNumber", "costPrice", "salePrice", "cashierUid"]
+    },
+    "Promotion": {
+      "title": "Promotion",
+      "description": "Marketing campaign and discount promo rule",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string" },
+        "discountValue": { "type": "number" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["name", "type", "discountValue", "startDate", "endDate", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profile records"
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Catalog of items, parts and services"
+    },
+    "/suppliers/{supplierId}": {
+      "schema": { "$ref": "#/entities/Supplier" },
+      "description": "Suppliers database"
+    },
+    "/sales/{saleId}": {
+      "schema": { "$ref": "#/entities/Sale" },
+      "description": "Sales history records"
+    },
+    "/repairs/{repairId}": {
+      "schema": { "$ref": "#/entities/Repair" },
+      "description": "Technical repair tickets"
+    },
+    "/recharges/{rechargeId}": {
+      "schema": { "$ref": "#/entities/Recharge" },
+      "description": "Dual balance mobile recharges"
+    },
+    "/promotions/{promoId}": {
+      "schema": { "$ref": "#/entities/Promotion" },
+      "description": "Active and scheduled promotions"
+    }
+  }
+}
