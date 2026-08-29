@@ -18,7 +18,7 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, isEmailCeo } from '../../context/AuthContext';
 import { UserRole } from '../../types';
 import { CelltronicLogo } from '../common/CelltronicLogo';
 
@@ -94,7 +94,11 @@ export const RoleSelectionScreen: React.FC = () => {
 
   const handleRoleCardClick = (option: RoleOption) => {
     setSelectedRole(option.role);
-    setCustomEmail(option.defaultEmail);
+    if (option.role === 'CEO' && gatekeeperUser?.email) {
+      setCustomEmail(gatekeeperUser.email);
+    } else {
+      setCustomEmail(option.defaultEmail);
+    }
     setPin('');
     setErrorMessage(null);
   };
@@ -304,6 +308,28 @@ export const RoleSelectionScreen: React.FC = () => {
                   </div>
                 )}
 
+                {/* Special CEO Direct Access Banner & Button */}
+                {selectedRole === 'CEO' && isEmailCeo(gatekeeperUser?.email) && (
+                  <div className="mb-5 p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
+                    <div className="flex items-center gap-2 text-amber-400 font-bold text-xs mb-1">
+                      <Crown className="w-4 h-4" />
+                      <span>Acceso Directo de CEO Detectado</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 mb-3 leading-relaxed">
+                      Tu correo autenticado en Google (<strong className="text-white">{gatekeeperUser?.email}</strong>) cuenta con privilegios de Propietario / CEO. Puedes ingresar directamente sin ingresar PIN.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => selectRoleWithPin('CEO', '9999', gatekeeperUser?.email || undefined)}
+                      className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <Crown className="w-4 h-4" />
+                      <span>Ingresar Directamente como CEO</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
                 {/* PIN Input Display */}
                 <form onSubmit={handlePinSubmit} className="space-y-4">
                   <div>
@@ -388,9 +414,7 @@ export const RoleSelectionScreen: React.FC = () => {
 
       {/* Footer */}
       <footer className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-center text-xs text-slate-400 border-t border-slate-800/80 gap-2 text-center">
-        <div className="font-medium text-slate-300">
-          CELLTRONIC ERP v2.7 • Doble Capa de Seguridad (Gatekeeper + PIN)
-        </div>
+        <div>© 2026 CELLTRONIC Mobile Store & ERP. Todos los derechos reservados.</div>
       </footer>
     </div>
   );

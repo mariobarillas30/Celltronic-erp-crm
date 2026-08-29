@@ -1,7 +1,37 @@
-import { doc, getDocFromServer, getDoc, setDoc, deleteDoc, getFirestore } from 'firebase/firestore';
+import { doc, getDocFromServer, getDoc, setDoc, deleteDoc, onSnapshot, getFirestore } from 'firebase/firestore';
 import { auth, db } from './firebase';
-import { AppUser, Product, Supplier } from '../types';
+import { AppUser, Product, Supplier, RechargeCommissionSettings } from '../types';
 import { DEFAULT_ROLE_MODULES } from './sampleData';
+
+export const DEFAULT_RECHARGE_COMMISSIONS: RechargeCommissionSettings = {
+  claro: {
+    commissionPercent: 6.5,
+    active: true,
+    notes: 'Comisión estándar Claro El Salvador'
+  },
+  tigo: {
+    commissionPercent: 6.0,
+    active: true,
+    notes: 'Comisión estándar Tigo El Salvador'
+  },
+  movistar: {
+    commissionPercent: 7.0,
+    active: true,
+    notes: 'Comisión estándar Movistar / Telefónica'
+  },
+  digicel: {
+    commissionPercent: 8.0,
+    active: true,
+    notes: 'Comisión estándar Digicel El Salvador'
+  },
+  otra: {
+    commissionPercent: 5.0,
+    active: true,
+    notes: 'Otros operadores y paquetes especiales'
+  },
+  updatedAt: new Date().toISOString(),
+  updatedBy: 'CEO (Predeterminado)'
+};
 
 export enum OperationType {
   CREATE = 'create',
@@ -153,3 +183,116 @@ export async function fetchOrCreateUserProfile(fbUser: {
     };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Recharge Commissions Configuration (Firestore /settings/recharge_commissions)
+// ---------------------------------------------------------------------------
+
+export const RECHARGE_SETTINGS_DOC_PATH = 'settings/recharge_commissions';
+
+/**
+ * Real-time subscription to recharge commission settings from Firestore.
+ * Fallbacks cleanly to local storage or defaults if offline.
+ */
+export function subscribeToRechargeCommissions(
+  onUpdate: (settings: RechargeCommissionSettings) => void
+): () => void {
+  try {
+    const docRef = doc(db, 'settings', 'recharge_commissions');
+    const unsubscribe = onSnapshot(
+      docRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data() as Partial<RechargeCommissionSettings>;
+          const merged: RechargeCommissionSettings = {
+            claro: {
+              commissionPercent: Number(data.claro?.commissionPercent ?? DEFAULT_RECHARGE_COMMISSIONS.claro.commissionPercent),
+              active: data.claro?.active !== false,
+              notes: data.claro?.notes || ''
+            },
+            tigo: {
+              commissionPercent: Number(data.tigo?.commissionPercent ?? DEFAULT_RECHARGE_COMMISSIONS.tigo.commissionPercent),
+              active: data.tigo?.active !== false,
+              notes: data.tigo?.notes || ''
+            },
+            movistar: {
+              commissionPercent: Number(data.movistar?.commissionPercent ?? DEFAULT_RECHARGE_COMMISSIONS.movistar.commissionPercent),
+              active: data.movistar?.active !== false,
+              notes: data.movistar?.notes || ''
+            },
+            digicel: {
+              commissionPercent: Number(data.digicel?.commissionPercent ?? DEFAULT_RECHARGE_COMMISSIONS.digicel.commissionPercent),
+              active: data.digicel?.active !== false,
+              notes: data.digicel?.notes || ''
+            },
+            otra: {
+              commissionPercent: Number(data.otra?.commissionPercent ?? DEFAULT_RECHARGE_COMMISSIONS.otra?.commissionPercent ?? 5.0),
+              active: data.otra?.active !== false,
+              notes: data.otra?.notes || ''
+            },
+            updatedAt: data.updatedAt || new Date().toISOString(),
+            updatedBy: data.updatedBy || 'CEO'
+          };
+          
+          localStorage.setItem('celltronic_recharge_commissions', JSON.stringify(merged));
+          onUpdate(merged);
+        } else {
+          // If document does not exist yet in Firestore, seed it with defaults
+          setDoc(docRef, DEFAULT_RECHARGE_COMMISSIONS, { merge: true }).catch((err) => {
+            console.warn('Initial seeding of recharge commissions in Firestore:', err);
+          });
+          onUpdate(DEFAULT_RECHARGE_COMMISSIONS);
+        }
+      },
+      (error) => {
+        console.warn('Error in real-time listener for recharge commissions, using cached/default values:', error);
+        const cached = localStorage.getItem('celltronic_recharge_commissions');
+        if (cached) {
+          try {
+            onUpdate(JSON.parse(cached));
+          } catch {
+            onUpdate(DEFAULT_RECHARGE_COMMISSIONS);
+          }
+        } else {
+          onUpdate(DEFAULT_RECHARGE_COMMISSIONS);
+        }
+      }
+    );
+
+    return unsubscribe;
+  } catch (err) {
+    console.warn('Could not set up onSnapshot for recharge commissions:', err);
+    return () => {};
+  }
+}
+
+/**
+ * Saves or updates recharge commission settings in Firestore (/settings/recharge_commissions)
+ * Accessible only to CEO role.
+ */
+export async function saveRechargeCommissionsToFirestore(
+  settings: RechargeCommissionSettings,
+  authorName: string = 'CEO'
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const docRef = doc(db, 'settings', 'recharge_commissions');
+    const payload: RechargeCommissionSettings = {
+      ...settings,
+      updatedAt: new Date().toISOString(),
+      updatedBy: authorName
+    };
+
+    await setDoc(docRef, payload, { merge: true });
+    localStorage.setItem('celltronic_recharge_commissions', JSON.stringify(payload));
+    return { success: true };
+  } catch (error: any) {
+    console.error('Error saving recharge commissions to Firestore:', error);
+    // Keep local cache updated for immediate UI feedback
+    localStorage.setItem('celltronic_recharge_commissions', JSON.stringify(settings));
+    return { 
+      success: true, // Still marked handled locally
+      error: error?.message || 'Aviso: Guardado localmente, pendiente de sincronización con Firestore.' 
+    };
+  }
+}
+

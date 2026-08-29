@@ -696,96 +696,107 @@ export const RepairsModule: React.FC<RepairsModuleProps> = ({
 
       {/* Printable Ticket Receipt for Customer */}
       {showPrintTicketModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 print-modal-overlay">
-          <div className={`bg-white text-slate-900 rounded-2xl shadow-2xl space-y-3 font-mono transition-all ${
-            printPaperWidth === '58mm'
-              ? 'ticket-paper-58mm max-w-[250px] w-full p-3 text-[9px]'
-              : 'ticket-paper-80mm max-w-md w-full p-6 text-xs'
-          }`}>
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-2 print-modal-overlay">
+          <div
+            id="pos-ticket-receipt"
+            className={`bg-white text-black rounded-xl shadow-2xl space-y-2 font-mono transition-all box-border border border-slate-200 ${
+              printPaperWidth === '80mm'
+                ? 'ticket-paper-80mm max-w-[340px] w-full p-4 text-xs'
+                : 'ticket-paper-48mm max-w-[384px] w-[48mm] p-2 text-[10.5px] leading-tight'
+            }`}
+            style={{
+              width: printPaperWidth === '80mm' ? '80mm' : '48mm',
+              maxWidth: printPaperWidth === '80mm' ? '80mm' : '384px',
+              margin: '0 auto',
+              padding: printPaperWidth === '80mm' ? '4mm' : '1mm 0mm',
+              fontSize: '10.5px',
+              lineHeight: '1.25',
+              wordBreak: 'break-word',
+            }}
+          >
             {/* Paper Width Config Selector (Hidden during print) */}
-            <div className="no-print bg-slate-100 p-2 rounded-xl flex items-center justify-between text-[11px] font-sans border border-slate-200 mb-1">
-              <span className="font-bold text-slate-700 flex items-center gap-1">
+            <div className="no-print bg-slate-100 p-2 rounded-lg flex items-center justify-between text-[11px] font-sans border border-slate-300 mb-1">
+              <span className="font-bold text-slate-800 flex items-center gap-1">
                 <Printer className="w-3.5 h-3.5 text-purple-600" />
-                Formato Impresión:
+                Ticket Térmico (48mm/58mm)
               </span>
-              <div className="flex gap-1">
-                <button
-                  type="button"
-                  onClick={() => togglePaperWidth('80mm')}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${
-                    printPaperWidth === '80mm'
-                      ? 'bg-purple-600 text-white shadow-xs'
-                      : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-300'
-                  }`}
-                >
-                  80mm (Estándar)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => togglePaperWidth('58mm')}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${
-                    printPaperWidth === '58mm'
-                      ? 'bg-purple-600 text-white shadow-xs'
-                      : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-300'
-                  }`}
-                >
-                  58mm (Móvil POS)
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowPrintTicketModal(null)}
+                className="text-slate-500 hover:text-slate-900 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            <div className="text-center border-b border-slate-300 pb-2">
-              <h2 className={`font-extrabold tracking-wider ${printPaperWidth === '58mm' ? 'text-xs' : 'text-base'}`}>
+            <div className="text-center border-b border-dashed border-black pb-1 space-y-0.5">
+              <h2 className="font-extrabold text-[12px] tracking-wider text-black">
                 CELLTRONIC TALLER TÉCNICO
               </h2>
-              <p className="text-[9px] text-slate-600">Comprobante de Recepción de Equipo</p>
-              <p className={`font-extrabold text-purple-700 mt-0.5 ${printPaperWidth === '58mm' ? 'text-xs' : 'text-sm'}`}>
+              <p className="text-[10px] text-black">Recepción de Dispositivos</p>
+              <p className="font-extrabold text-[11px] text-black mt-0.5">
                 {showPrintTicketModal.ticketNumber}
               </p>
             </div>
 
-            <div className="space-y-0.5 border-b border-slate-200 pb-2 text-slate-800">
-              <p>Fecha Ingreso: {new Date(showPrintTicketModal.receivedDate).toLocaleDateString('es-SV')}</p>
-              <p>Propietario: {showPrintTicketModal.customerName}</p>
-              <p>Teléfono: {showPrintTicketModal.customerPhone}</p>
-              <p>DUI/DNI: {showPrintTicketModal.customerDocumentId || 'N/A'}</p>
-            </div>
-
-            <div className="space-y-0.5 border-b border-slate-200 pb-2 text-slate-800">
-              <p className="font-bold">Equipo: {showPrintTicketModal.deviceBrand} {showPrintTicketModal.deviceModel}</p>
-              <p className="text-[9px] text-slate-600">IMEI/Serie: {showPrintTicketModal.serialNumber || 'No especificado'}</p>
-              <p className="text-[9px] pt-0.5">Falla reportada: {showPrintTicketModal.issueDescription}</p>
-            </div>
-
-            <div className={`flex justify-between font-bold text-slate-900 ${printPaperWidth === '58mm' ? 'text-xs' : 'text-sm'}`}>
-              <span>Presupuesto Estimado:</span>
-              <span className="text-emerald-700">${showPrintTicketModal.estimatedCost.toFixed(2)}</span>
-            </div>
-
-            {showPrintTicketModal.advancePayment && showPrintTicketModal.advancePayment > 0 ? (
-              <div className="flex justify-between font-semibold text-purple-800 text-[10px]">
-                <span>Anticipo Pagado:</span>
-                <span>-${showPrintTicketModal.advancePayment.toFixed(2)}</span>
+            <div className="space-y-0.5 border-b border-dashed border-black pb-1 text-[10px] text-black">
+              <div className="flex justify-between">
+                <span>Fecha Ingreso:</span>
+                <span>{new Date(showPrintTicketModal.receivedDate).toLocaleDateString('es-SV')}</span>
               </div>
-            ) : null}
+              <div className="flex justify-between font-bold">
+                <span>Cliente:</span>
+                <span className="truncate max-w-[170px]">{showPrintTicketModal.customerName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Teléfono:</span>
+                <span>{showPrintTicketModal.customerPhone}</span>
+              </div>
+              {showPrintTicketModal.customerDocumentId && (
+                <div className="flex justify-between">
+                  <span>DUI/DNI:</span>
+                  <span>{showPrintTicketModal.customerDocumentId}</span>
+                </div>
+              )}
+            </div>
 
-            <div className="p-1.5 bg-amber-50 rounded-lg text-[8.5px] text-amber-900 border border-amber-200 leading-tight">
-              <strong>TÉRMINOS Y CONDICIONES:</strong> Presentar este ticket para retirar el equipo. CELLTRONIC no se hace responsable por equipos no reclamados tras 30 días del aviso de "Listo para Entregar".
+            <div className="space-y-0.5 border-b border-dashed border-black pb-1 text-[10px] text-black">
+              <p className="font-bold">Equipo: {showPrintTicketModal.deviceBrand} {showPrintTicketModal.deviceModel}</p>
+              <p className="text-[9.5px]">IMEI/Serie: {showPrintTicketModal.serialNumber || 'No especificado'}</p>
+              <p className="text-[9.5px]">Falla: {showPrintTicketModal.issueDescription}</p>
+            </div>
+
+            <div className="space-y-0.5 text-[10.5px] border-b border-dashed border-black pb-1">
+              <div className="flex justify-between font-extrabold">
+                <span>Presupuesto:</span>
+                <span>${showPrintTicketModal.estimatedCost.toFixed(2)}</span>
+              </div>
+
+              {showPrintTicketModal.advancePayment && showPrintTicketModal.advancePayment > 0 ? (
+                <div className="flex justify-between font-semibold text-[10px]">
+                  <span>Anticipo Pagado:</span>
+                  <span>-${showPrintTicketModal.advancePayment.toFixed(2)}</span>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="text-[9px] text-black leading-tight border-b border-dashed border-black pb-1">
+              <strong>TÉRMINOS:</strong> Presentar este ticket para retirar el equipo. CELLTRONIC no se responsabiliza por equipos no retirados tras 30 días del aviso.
             </div>
 
             {/* Print Action Buttons (Hidden during print) */}
-            <div className="no-print flex gap-2 pt-2">
+            <div className="no-print flex gap-2 pt-1 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => window.print()}
-                className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                className="flex-1 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
               >
-                <Printer className="w-4 h-4" /> Imprimir ({printPaperWidth})
+                <Printer className="w-4 h-4" /> Imprimir (48mm)
               </button>
               <button
                 type="button"
                 onClick={() => setShowPrintTicketModal(null)}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold text-center cursor-pointer shadow-md"
+                className="py-2 px-3 bg-purple-700 hover:bg-purple-600 text-white rounded-lg text-xs font-bold text-center cursor-pointer shadow-md"
               >
                 Cerrar
               </button>

@@ -128,6 +128,21 @@
         "status": { "type": "string" }
       },
       "required": ["name", "type", "discountValue", "startDate", "endDate", "status"]
+    },
+    "RechargeCommissionSettings": {
+      "title": "RechargeCommissionSettings",
+      "description": "Dynamic operator commission rates configured by the CEO",
+      "type": "object",
+      "properties": {
+        "claro": { "type": "object" },
+        "tigo": { "type": "object" },
+        "movistar": { "type": "object" },
+        "digicel": { "type": "object" },
+        "otra": { "type": "object" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["claro", "tigo", "movistar", "digicel"]
     }
   },
   "firestore": {
@@ -154,6 +169,10 @@
     "/recharges/{rechargeId}": {
       "schema": { "$ref": "#/entities/Recharge" },
       "description": "Dual balance mobile recharges"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/RechargeCommissionSettings" },
+      "description": "Global system configuration documents including recharge_commissions"
     },
     "/promotions/{promoId}": {
       "schema": { "$ref": "#/entities/Promotion" },

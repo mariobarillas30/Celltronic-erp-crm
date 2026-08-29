@@ -139,69 +139,72 @@ export const PettyCashExpenseModal: React.FC<PettyCashExpenseModalProps> = ({
             </div>
 
             {/* Printable Voucher Card */}
-            <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3 font-mono text-xs text-slate-300">
-              <div className="text-center pb-2 border-b border-slate-800">
-                <p className="font-bold text-white text-sm">CELLTRONIC ERP - VALE DE CAJA CHICA</p>
-                <p className="text-amber-400 font-bold text-sm">{generatedExpense.voucherNumber}</p>
-                <p className="text-[11px] text-slate-400">{new Date(generatedExpense.date).toLocaleString()}</p>
+            <div
+              id="pos-ticket-receipt"
+              className="ticket-paper-48mm p-3 bg-white text-black rounded-xl border border-black space-y-2 font-mono text-[10.5px] leading-tight"
+            >
+              <div className="text-center pb-1 border-b border-dashed border-black">
+                <p className="font-extrabold text-[12px] text-black">CELLTRONIC - CAJA CHICA</p>
+                <p className="font-extrabold text-[11px] text-black">{generatedExpense.voucherNumber}</p>
+                <p className="text-[9.5px] text-black">{new Date(generatedExpense.date).toLocaleDateString('es-SV')} {new Date(generatedExpense.date).toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' })}</p>
               </div>
 
-              <div className="space-y-1.5 pt-1">
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Monto Entregado:</span>
-                  <span className="text-emerald-400 font-bold text-sm">${generatedExpense.amount.toFixed(2)}</span>
+              <div className="space-y-1 pt-0.5 text-[10px]">
+                <div className="flex justify-between font-extrabold text-[11px]">
+                  <span>MONTO:</span>
+                  <span>${generatedExpense.amount.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Proveedor/Destino:</span>
-                  <span className="font-semibold text-white truncate max-w-[200px]">{generatedExpense.recipientOrSupplier}</span>
+                  <span>Destinatario:</span>
+                  <span className="font-semibold truncate max-w-[150px]">{generatedExpense.recipientOrSupplier}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Categoría:</span>
-                  <span className="text-cyan-300">{generatedExpense.category}</span>
+                  <span>Categoría:</span>
+                  <span>{generatedExpense.category}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-400">N° Factura/Recibo:</span>
-                  <span className="text-amber-300">{generatedExpense.invoiceOrReceiptNumber}</span>
+                  <span>Comprobante:</span>
+                  <span>{generatedExpense.invoiceOrReceiptNumber}</span>
                 </div>
-                <div className="pt-1">
-                  <span className="text-slate-400 block">Concepto:</span>
-                  <span className="text-slate-200 font-sans text-xs">{generatedExpense.concept}</span>
+                <div className="pt-0.5">
+                  <span className="block font-semibold">Concepto:</span>
+                  <span className="text-[9.5px]">{generatedExpense.concept}</span>
                 </div>
                 {generatedExpense.notes && (
-                  <div className="pt-1">
-                    <span className="text-slate-400 block">Observaciones:</span>
-                    <span className="text-slate-300 font-sans text-xs">{generatedExpense.notes}</span>
+                  <div className="pt-0.5">
+                    <span className="block font-semibold">Observación:</span>
+                    <span className="text-[9.5px]">{generatedExpense.notes}</span>
                   </div>
                 )}
-                <div className="flex justify-between pt-2 border-t border-slate-800 text-[11px]">
-                  <span className="text-slate-400">Cajero Responsable:</span>
-                  <span className="text-slate-200">{generatedExpense.cashierName}</span>
+                <div className="flex justify-between pt-1 border-t border-dashed border-black text-[9.5px]">
+                  <span>Cajero:</span>
+                  <span>{generatedExpense.cashierName}</span>
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-800 flex justify-between text-[10px] text-slate-500 text-center">
-                <div className="w-1/2 border-t border-slate-700 pt-1 mx-2">
-                  Firma Cajero Entregó
+              <div className="pt-2 border-t border-dashed border-black flex justify-between text-[8.5px] text-center">
+                <div className="w-1/2 border-t border-black pt-0.5 mx-1 font-semibold">
+                  Firma Cajero
                 </div>
-                <div className="w-1/2 border-t border-slate-700 pt-1 mx-2">
-                  Firma Recibí Conforme
+                <div className="w-1/2 border-t border-black pt-0.5 mx-1 font-semibold">
+                  Recibí Conforme
                 </div>
               </div>
             </div>
 
-            <div className="flex gap-2 pt-2">
+            <div className="no-print flex gap-2 pt-2">
               <button
                 type="button"
                 onClick={handlePrintVoucher}
-                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border border-slate-700 transition-all cursor-pointer"
+                className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border border-slate-700 transition-all cursor-pointer"
               >
                 <Printer className="w-4 h-4" />
-                Imprimir Vale
+                Imprimir Vale (48mm)
               </button>
               <button
                 type="button"
                 onClick={handleResetAndClose}
-                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-600/30 cursor-pointer"
+                className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-600/30 cursor-pointer"
               >
                 Aceptar & Continuar
               </button>

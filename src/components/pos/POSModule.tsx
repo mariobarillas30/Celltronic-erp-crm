@@ -33,13 +33,14 @@ import {
   Check,
   Gift
 } from 'lucide-react';
-import { Html5Qrcode } from 'html5-qrcode';
 import { doc, runTransaction, collection } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { Product, CartItem, Sale, PaymentMethod, Promotion, CashShift, Customer, DocumentType, CustomerType, Supplier, PettyCashExpense } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { PettyCashExpenseModal } from '../petty_cash/PettyCashExpenseModal';
 import { PromotionalGiftsModal } from './PromotionalGiftsModal';
+import { TicketPrint } from './TicketPrint';
+import { BarcodeScannerModal } from '../common/BarcodeScannerModal';
 
 interface POSModuleProps {
   products: Product[];
@@ -206,82 +207,32 @@ export const POSModule: React.FC<POSModuleProps> = ({
     localStorage.setItem('celltronic_ticket_paper_width', width);
   };
 
-  // Barcode Camera Scanner State (html5-qrcode)
+  // Barcode Camera Scanner State
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannedFeedback, setScannedFeedback] = useState<string | null>(null);
-  const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
 
-  // Camera Barcode Scanner Effect
-  useEffect(() => {
-    if (!isScannerOpen) return;
+  const handleBarcodeScanned = (decodedText: string) => {
+    const cleanCode = decodedText.trim().toLowerCase();
+    const found =
+      products.find(
+        (p) => p.code.toLowerCase() === cleanCode || p.id.toLowerCase() === cleanCode
+      ) ||
+      products.find((p) => p.code.toLowerCase().includes(cleanCode));
 
-    setScannerError(null);
-    let html5QrcodeScanner: Html5Qrcode | null = null;
-
-    // Small timeout to ensure DOM container is mounted
-    const timer = setTimeout(() => {
-      try {
-        html5QrcodeScanner = new Html5Qrcode('pos-barcode-scanner-viewport');
-        html5QrcodeScanner
-          .start(
-            { facingMode: 'environment' },
-            {
-              fps: 10,
-              qrbox: { width: 250, height: 150 },
-            },
-            (decodedText) => {
-              const now = Date.now();
-              if (
-                lastScanRef.current.code === decodedText &&
-                now - lastScanRef.current.time < 1800
-              ) {
-                return;
-              }
-              lastScanRef.current = { code: decodedText, time: now };
-
-              const cleanCode = decodedText.trim().toLowerCase();
-              const found =
-                products.find(
-                  (p) => p.code.toLowerCase() === cleanCode || p.id.toLowerCase() === cleanCode
-                ) ||
-                products.find((p) => p.code.toLowerCase().includes(cleanCode));
-
-              if (found) {
-                addToCart(found);
-                setScannedFeedback(`✅ "${found.name}" agregado al carrito`);
-                setTimeout(() => setScannedFeedback(null), 3000);
-              } else {
-                setScannedFeedback(`⚠️ No se encontró producto con código "${decodedText}"`);
-                setTimeout(() => setScannedFeedback(null), 3000);
-              }
-            },
-            () => {
-              // Frame parse ignore
-            }
-          )
-          .catch((err) => {
-            console.error('Barcode scanner camera error:', err);
-            setScannerError(
-              'No se pudo acceder a la cámara. Verifique que concedió permisos de cámara a su navegador.'
-            );
-          });
-      } catch (e: any) {
-        console.error('Html5Qrcode init error:', e);
-        setScannerError('Error al inicializar el lector de código de barras.');
+    if (found) {
+      if (found.stock <= 0) {
+        setScannedFeedback(`⚠️ "${found.name}" no tiene stock disponible`);
+        setTimeout(() => setScannedFeedback(null), 3000);
+      } else {
+        addToCart(found);
+        setScannedFeedback(`✅ "${found.name}" agregado al carrito ($${found.salePrice.toFixed(2)})`);
+        setTimeout(() => setScannedFeedback(null), 3000);
       }
-    }, 150);
-
-    return () => {
-      clearTimeout(timer);
-      if (html5QrcodeScanner && html5QrcodeScanner.isScanning) {
-        html5QrcodeScanner
-          .stop()
-          .then(() => html5QrcodeScanner?.clear())
-          .catch((err) => console.error('Error stopping scanner:', err));
-      }
-    };
-  }, [isScannerOpen, products]);
+    } else {
+      setScannedFeedback(`⚠️ No se encontró producto con código "${decodedText}"`);
+      setTimeout(() => setScannedFeedback(null), 3500);
+    }
+  };
   
   // Completed Sale Ticket Modal State
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
@@ -901,20 +852,67 @@ export const POSModule: React.FC<POSModuleProps> = ({
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Buscar por código de barra, nombre, marca o modelo..."
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const term = searchTerm.trim().toLowerCase();
+                    if (!term) return;
+
+                    const found =
+                      products.find(
+                        (p) => p.code.toLowerCase() === term || p.id.toLowerCase() === term
+                      ) ||
+                      (filteredProducts.length === 1 ? filteredProducts[0] : null) ||
+                      products.find((p) => p.code.toLowerCase().includes(term));
+
+                    if (found) {
+                      if (found.stock <= 0) {
+                        setScannedFeedback(`⚠️ "${found.name}" está agotado (Stock 0)`);
+                        setTimeout(() => setScannedFeedback(null), 3500);
+                      } else {
+                        addToCart(found);
+                        setScannedFeedback(`✅ "${found.name}" agregado al carrito ($${found.salePrice.toFixed(2)})`);
+                        setSearchTerm('');
+                        setTimeout(() => setScannedFeedback(null), 3000);
+                      }
+                    } else {
+                      setScannedFeedback(`⚠️ No se encontró producto con código "${searchTerm}"`);
+                      setTimeout(() => setScannedFeedback(null), 3500);
+                    }
+                  }
+                }}
+                placeholder="Escanee con pistola de código de barras o busque por nombre/marca..."
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-hidden focus:border-blue-500 transition-all"
               />
             </div>
             <button
               type="button"
               onClick={() => setIsScannerOpen(true)}
-              title="Escanear Código de Barras con Cámara"
+              title="Escanear Código de Barras con Cámara del Dispositivo"
               className="px-3.5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl flex items-center gap-2 text-xs font-bold transition-all shadow-md shadow-blue-600/20 shrink-0 cursor-pointer"
             >
               <Camera className="w-4 h-4" />
-              <span className="hidden sm:inline">Escanear</span>
+              <span className="hidden sm:inline">Escanear Cámara</span>
             </button>
           </div>
+
+          {/* Feedback banner for barcode scans */}
+          {scannedFeedback && (
+            <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center justify-between animate-in fade-in slide-in-from-top-1 ${
+              scannedFeedback.startsWith('✅') 
+                ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
+                : 'bg-amber-500/20 border border-amber-500/40 text-amber-300'
+            }`}>
+              <span>{scannedFeedback}</span>
+              <button 
+                type="button" 
+                onClick={() => setScannedFeedback(null)} 
+                className="text-slate-400 hover:text-white text-xs px-1"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {/* Category Chips */}
           <div className="flex gap-1.5 overflow-x-auto pb-2 scrollbar-none touch-pan-x max-w-full whitespace-nowrap">
@@ -1404,7 +1402,7 @@ export const POSModule: React.FC<POSModuleProps> = ({
                       ? `🔓 Anulado por: ${profitOverrideAuthorizedBy}` 
                       : isCEO 
                         ? '✅ Autorizado (CEO)' 
-                        : `✅ PIN: ${authorizedSupervisor}`}
+                        : `✅ Autorizado por ${authorizedSupervisor}`}
                   </span>
                 ) : (
                   <button
@@ -1851,200 +1849,22 @@ export const POSModule: React.FC<POSModuleProps> = ({
 
       {/* Printable Receipt / Invoice Ticket Modal */}
       {completedSale && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 print-modal-overlay">
-          <div className={`bg-white text-slate-900 rounded-2xl shadow-2xl space-y-3 font-mono transition-all ${
-            printPaperWidth === '58mm'
-              ? 'ticket-paper-58mm max-w-[250px] w-full p-3 text-[9px]'
-              : 'ticket-paper-80mm max-w-md w-full p-6 text-xs'
-          }`}>
-            {/* Paper Width Config Selector (Hidden during print) */}
-            <div className="no-print bg-slate-100 p-2 rounded-xl flex items-center justify-between text-[11px] font-sans border border-slate-200 mb-1">
-              <span className="font-bold text-slate-700 flex items-center gap-1">
-                <Printer className="w-3.5 h-3.5 text-cyan-600" />
-                Formato Impresión:
-              </span>
-              <div className="flex gap-1">
-                <button
-                  type="button"
-                  onClick={() => togglePaperWidth('80mm')}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${
-                    printPaperWidth === '80mm'
-                      ? 'bg-cyan-600 text-white shadow-xs'
-                      : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-300'
-                  }`}
-                >
-                  80mm (Estándar)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => togglePaperWidth('58mm')}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${
-                    printPaperWidth === '58mm'
-                      ? 'bg-cyan-600 text-white shadow-xs'
-                      : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-300'
-                  }`}
-                >
-                  58mm (Móvil POS)
-                </button>
-              </div>
-            </div>
-
-            <div className="text-center border-b border-slate-200 pb-2">
-              <h2 className={`font-extrabold tracking-wider ${printPaperWidth === '58mm' ? 'text-xs' : 'text-base'}`}>
-                CELLTRONIC STORE
-              </h2>
-              <p className="text-[9px] text-slate-600">Venta y Reparación de Dispositivos</p>
-              <p className="text-[9px] text-slate-500">NUEVA SUCURSAL CENTRAL • TEL: +503 2222-0000</p>
-              <p className="text-[9px] font-bold mt-0.5 text-blue-600">Comprobante #{completedSale.ticketNumber}</p>
-            </div>
-
-            <div className="space-y-0.5 text-slate-700 border-b border-slate-200 pb-2">
-              <p>Fecha: {new Date(completedSale.date).toLocaleString('es-SV')}</p>
-              <p className="font-bold text-slate-900">Cliente: {completedSale.customerName}</p>
-              {completedSale.customerPhone && <p>Teléfono: {completedSale.customerPhone}</p>}
-              {completedSale.customerDocNumber && (
-                <p className="font-mono font-bold text-cyan-800">
-                  {completedSale.customerDocType || 'Doc'}: {completedSale.customerDocNumber}
-                </p>
-              )}
-              {completedSale.customerRazonSocial && completedSale.customerRazonSocial !== completedSale.customerName && (
-                <p>Razón Social: {completedSale.customerRazonSocial}</p>
-              )}
-              {completedSale.customerGiro && <p>Giro Comercial: {completedSale.customerGiro}</p>}
-              {completedSale.customerAddress && <p>Dirección: {completedSale.customerAddress}</p>}
-              <p>Atendido por: {completedSale.cashierName}</p>
-              {completedSale.discountAuthorizedBy && (
-                <p className="text-amber-700 font-bold">Dscto. Autorizado por: {completedSale.discountAuthorizedBy}</p>
-              )}
-              {completedSale.promotionalAuthorizedBy && (
-                <p className="text-purple-700 font-bold">🎁 Cortesías Autorizadas por: {completedSale.promotionalAuthorizedBy}</p>
-              )}
-            </div>
-
-            {/* Items Table */}
-            <div className="space-y-1">
-              <div className="flex justify-between font-bold border-b border-slate-300 pb-1">
-                <span>Cant x Producto</span>
-                <span>Subtotal</span>
-              </div>
-              {completedSale.items.map((item, idx) => (
-                <div key={idx} className="flex justify-between items-center text-[10px]">
-                  <div className="truncate pr-1">
-                    <span>{item.quantity}x {item.name}</span>
-                    {item.isPromotionalGift && (
-                      <span className="block text-[8px] text-purple-700 font-bold">
-                        🎁 [CORTESÍA DE VENTA $0.00]
-                      </span>
-                    )}
-                  </div>
-                  <span className={`font-semibold ${item.isPromotionalGift ? 'text-purple-700 font-bold' : ''}`}>
-                    {item.isPromotionalGift ? '$0.00' : `$${item.subtotal.toFixed(2)}`}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {/* Receipt Summary */}
-            <div className="border-t border-slate-300 pt-2 space-y-0.5 text-right font-bold">
-              <div className="flex justify-between">
-                <span>Subtotal:</span>
-                <span>${completedSale.subtotal.toFixed(2)}</span>
-              </div>
-              {completedSale.discountTotal > 0 && (
-                <div className="flex justify-between text-red-600">
-                  <span>Descuento Total:</span>
-                  <span>-${completedSale.discountTotal.toFixed(2)}</span>
-                </div>
-              )}
-              <div className={`flex justify-between text-slate-900 pt-1 border-t border-slate-400 ${printPaperWidth === '58mm' ? 'text-xs' : 'text-sm'}`}>
-                <span>TOTAL FACTURADO:</span>
-                <span className="text-emerald-700">${completedSale.total.toFixed(2)}</span>
-              </div>
-              <p className="text-[9px] text-slate-500 pt-0.5">
-                Pago con: {completedSale.paymentMethod} • Cambio: ${(completedSale.changeGiven || 0).toFixed(2)}
-              </p>
-            </div>
-
-            <div className="text-center pt-2 text-[9px] text-slate-500 border-t border-slate-200">
-              ¡Gracias por preferir CELLTRONIC!
-              <br />
-              Garantía en accesorios: 30 días con este ticket.
-            </div>
-
-            {/* Print Action Buttons (Hidden during print) */}
-            <div className="no-print flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
-              >
-                <Printer className="w-4 h-4" /> Imprimir ({printPaperWidth})
-              </button>
-              <button
-                type="button"
-                onClick={() => setCompletedSale(null)}
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold text-center cursor-pointer shadow-md"
-              >
-                Cerrar y Nueva Venta
-              </button>
-            </div>
-          </div>
-        </div>
+        <TicketPrint
+          sale={completedSale}
+          paperWidth={printPaperWidth as '48mm' | '58mm' | '80mm'}
+          onClose={() => setCompletedSale(null)}
+        />
       )}
 
-      {/* BARCODE SCANNER MODAL */}
-      {isScannerOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl relative animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2 text-white font-bold text-sm">
-                <ScanLine className="w-5 h-5 text-blue-400" />
-                <span>Escáner de Código de Barras</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsScannerOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <p className="text-xs text-slate-400 text-center">
-                Apunta la cámara hacia el código de barras del producto. Se agregará automáticamente al carrito.
-              </p>
-
-              {scannerError ? (
-                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400 flex items-center gap-3">
-                  <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-                  <span>{scannerError}</span>
-                </div>
-              ) : (
-                <div className="relative w-full h-64 bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center">
-                  <div id="pos-barcode-scanner-viewport" className="w-full h-full" />
-                </div>
-              )}
-
-              {scannedFeedback && (
-                <div className="p-3 bg-blue-500/20 border border-blue-500/40 rounded-xl text-xs text-blue-200 font-bold text-center animate-bounce">
-                  {scannedFeedback}
-                </div>
-              )}
-            </div>
-
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => setIsScannerOpen(false)}
-                className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
-              >
-                Cerrar Lector
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* BARCODE SCANNER MODAL (Camera) */}
+      <BarcodeScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScan={handleBarcodeScanned}
+        continuous={true}
+        title="Lector de Códigos de Barras (POS)"
+        subtitle="Apunte la cámara al código de barra; se agregará automáticamente al carrito"
+      />
 
       {/* QUICK CUSTOMER CREATION MODAL IN POS */}
       {showQuickCustomerModal && (

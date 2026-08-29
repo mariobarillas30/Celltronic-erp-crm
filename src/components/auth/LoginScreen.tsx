@@ -436,13 +436,8 @@ export const LoginScreen: React.FC = () => {
       )}
 
       {/* Footer */}
-      <footer className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 border-t border-slate-800/80 gap-2">
+      <footer className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-center text-xs text-slate-400 border-t border-slate-800/80 gap-2 text-center">
         <div>© 2026 CELLTRONIC Mobile Store & ERP. Todos los derechos reservados.</div>
-        <div className="flex items-center gap-4">
-          <span>Gatekeeper: Activo</span>
-          <span>Base de Datos: Firestore Cloud</span>
-          <span>Cifrado: TLS 1.3</span>
-        </div>
       </footer>
     </div>
   );

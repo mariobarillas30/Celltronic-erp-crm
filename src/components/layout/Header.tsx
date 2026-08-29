@@ -121,7 +121,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={() => setShowRoleSwitchModal(true)}
             className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
-            title="Cambiar rol operativo con PIN"
+            title="Cambiar rol operativo"
           >
             <UserCheck className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
             <span className="hidden md:inline">Cambiar Rol</span>

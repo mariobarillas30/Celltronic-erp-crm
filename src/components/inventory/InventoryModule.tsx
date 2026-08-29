@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Plus, 
   Search, 
@@ -14,10 +14,13 @@ import {
   MapPin,
   Gift,
   ShieldAlert,
-  ShieldCheck
+  ShieldCheck,
+  Camera,
+  ScanLine
 } from 'lucide-react';
 import { Product, Supplier, ProductCategory } from '../../types';
 import { useAuth } from '../../context/AuthContext';
+import { BarcodeScannerModal } from '../common/BarcodeScannerModal';
 
 interface InventoryModuleProps {
   products: Product[];
@@ -65,6 +68,12 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({
   const [prodSupplierId, setProdSupplierId] = useState('');
   const [prodIsPromotional, setProdIsPromotional] = useState(false);
   const [prodPromoDescription, setProdPromoDescription] = useState('');
+
+  // Barcode Camera Scanner Modals & Field Refs
+  const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
+  const [isSearchScannerOpen, setIsSearchScannerOpen] = useState(false);
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const prodNameInputRef = useRef<HTMLInputElement>(null);
 
   // Supplier Form State
   const [supName, setSupName] = useState('');
@@ -273,9 +282,23 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Filtrar inventario por nombre, código o marca..."
-                className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-hidden focus:border-blue-500"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    // Physical barcode scanner capture
+                  }
+                }}
+                placeholder="Filtrar por código de barra (pistola), nombre o marca..."
+                className="w-full pl-9 pr-10 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-hidden focus:border-blue-500"
               />
+              <button
+                type="button"
+                onClick={() => setIsSearchScannerOpen(true)}
+                title="Escanear Código de Barras con Cámara"
+                className="absolute right-2.5 top-1.5 p-1 text-slate-400 hover:text-blue-400 hover:bg-slate-700/60 rounded-lg transition-all cursor-pointer"
+              >
+                <Camera className="w-4 h-4" />
+              </button>
             </div>
 
             <select
@@ -554,14 +577,36 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({
             <form onSubmit={handleSaveProduct} className="space-y-3 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 font-semibold mb-1">Código / Código Barras</label>
-                  <input
-                    type="text"
-                    value={prodCode}
-                    onChange={(e) => setProdCode(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono"
-                  />
+                  <label className="block text-slate-400 font-semibold mb-1">
+                    Código / Código de Barras
+                  </label>
+                  <div className="flex gap-1.5 items-center">
+                    <div className="relative flex-1">
+                      <input
+                        ref={barcodeInputRef}
+                        type="text"
+                        value={prodCode}
+                        onChange={(e) => setProdCode(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault(); // Capture physical barcode gun enter key
+                            prodNameInputRef.current?.focus();
+                          }
+                        }}
+                        placeholder="Escanee con pistola o escriba..."
+                        required
+                        className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-hidden focus:border-blue-500"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsBarcodeScannerOpen(true)}
+                      title="Escanear Código de Barras con Cámara del Dispositivo"
+                      className="p-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded-xl transition-all flex items-center justify-center shrink-0 cursor-pointer shadow-xs"
+                    >
+                      <Camera className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-slate-400 font-semibold mb-1">Categoría</label>
@@ -578,6 +623,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({
               <div>
                 <label className="block text-slate-400 font-semibold mb-1">Nombre o Descripción del Producto</label>
                 <input
+                  ref={prodNameInputRef}
                   type="text"
                   value={prodName}
                   onChange={(e) => setProdName(e.target.value)}
@@ -818,6 +864,33 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({
           </div>
         </div>
       )}
+
+      {/* Barcode Camera Scanner for Product Create/Edit Form */}
+      <BarcodeScannerModal
+        isOpen={isBarcodeScannerOpen}
+        onClose={() => setIsBarcodeScannerOpen(false)}
+        onScan={(scannedBarcode) => {
+          setProdCode(scannedBarcode);
+          setIsBarcodeScannerOpen(false);
+          setTimeout(() => {
+            prodNameInputRef.current?.focus();
+          }, 150);
+        }}
+        title="Escanear Código de Barras"
+        subtitle="Apunte la cámara al código de barras del producto para rellenarlo automáticamente"
+      />
+
+      {/* Barcode Camera Scanner for Inventory Search */}
+      <BarcodeScannerModal
+        isOpen={isSearchScannerOpen}
+        onClose={() => setIsSearchScannerOpen(false)}
+        onScan={(scannedBarcode) => {
+          setSearchTerm(scannedBarcode);
+          setIsSearchScannerOpen(false);
+        }}
+        title="Buscar Producto por Código de Barras"
+        subtitle="Apunte al código del producto para filtrarlo en el inventario"
+      />
     </div>
   );
 };

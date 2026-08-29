@@ -47,6 +47,8 @@ import {
   DEFAULT_ROLE_MODULES
 } from './lib/sampleData';
 import { deleteProductFromFirestore, deleteSupplierFromFirestore } from './lib/firestoreUtils';
+import { db } from './lib/firebase';
+import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { ShieldAlert, ArrowLeft } from 'lucide-react';
 
 // Application Version Control & Auto-Migration (v2.7)
@@ -184,6 +186,98 @@ function MainAppContent() {
     localStorage.setItem('celltronic_petty_cash_expenses', JSON.stringify(pettyCashExpenses));
   }, [pettyCashExpenses]);
 
+  // Real-time Firestore Sync Engine (onSnapshot for Sales, Products, Repairs, Shifts, etc.)
+  useEffect(() => {
+    // 1. Products Listener
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+      if (!snapshot.empty) {
+        const remoteProducts: Product[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Product) }));
+        setProducts(remoteProducts);
+      }
+    }, (err) => console.warn('Firestore Products onSnapshot notice:', err));
+
+    // 2. Sales Listener
+    const unsubSales = onSnapshot(collection(db, 'sales'), (snapshot) => {
+      if (!snapshot.empty) {
+        const remoteSales: Sale[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Sale) }));
+        remoteSales.sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime());
+        setSales(remoteSales);
+      }
+    }, (err) => console.warn('Firestore Sales onSnapshot notice:', err));
+
+    // 3. Repairs / Technical Service Listener
+    const unsubRepairs = onSnapshot(collection(db, 'repairs'), (snapshot) => {
+      if (!snapshot.empty) {
+        const remoteRepairs: Repair[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Repair) }));
+        remoteRepairs.sort((a, b) => new Date(b.receivedDate || 0).getTime() - new Date(a.receivedDate || 0).getTime());
+        setRepairs(remoteRepairs);
+      }
+    }, (err) => console.warn('Firestore Repairs onSnapshot notice:', err));
+
+    // 4. Cash Shifts Listener
+    const unsubShifts = onSnapshot(collection(db, 'shifts'), (snapshot) => {
+      if (!snapshot.empty) {
+        const remoteShifts: CashShift[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as CashShift) }));
+        remoteShifts.sort((a, b) => new Date(b.openedAt || 0).getTime() - new Date(a.openedAt || 0).getTime());
+        setCashShifts(remoteShifts);
+      }
+    }, (err) => console.warn('Firestore Shifts onSnapshot notice:', err));
+
+    // 5. Recharges Listener
+    const unsubRecharges = onSnapshot(collection(db, 'recharges'), (snapshot) => {
+      if (!snapshot.empty) {
+        const remoteRecharges: Recharge[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Recharge) }));
+        remoteRecharges.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        setRecharges(remoteRecharges);
+      }
+    }, (err) => console.warn('Firestore Recharges onSnapshot notice:', err));
+
+    // 6. Customers Listener
+    const unsubCustomers = onSnapshot(collection(db, 'customers'), (snapshot) => {
+      if (!snapshot.empty) {
+        const remoteCustomers: Customer[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Customer) }));
+        setCustomers(remoteCustomers);
+      }
+    }, (err) => console.warn('Firestore Customers onSnapshot notice:', err));
+
+    // 7. Promotions Listener
+    const unsubPromotions = onSnapshot(collection(db, 'promotions'), (snapshot) => {
+      if (!snapshot.empty) {
+        const remotePromotions: Promotion[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Promotion) }));
+        setPromotions(remotePromotions);
+      }
+    }, (err) => console.warn('Firestore Promotions onSnapshot notice:', err));
+
+    // 8. Suppliers Listener
+    const unsubSuppliers = onSnapshot(collection(db, 'suppliers'), (snapshot) => {
+      if (!snapshot.empty) {
+        const remoteSuppliers: Supplier[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as Supplier) }));
+        setSuppliers(remoteSuppliers);
+      }
+    }, (err) => console.warn('Firestore Suppliers onSnapshot notice:', err));
+
+    // 9. Petty Cash Expenses Listener
+    const unsubPettyExpenses = onSnapshot(collection(db, 'petty_cash_expenses'), (snapshot) => {
+      if (!snapshot.empty) {
+        const remoteExpenses: PettyCashExpense[] = snapshot.docs.map(d => ({ id: d.id, ...(d.data() as PettyCashExpense) }));
+        remoteExpenses.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        setPettyCashExpenses(remoteExpenses);
+      }
+    }, (err) => console.warn('Firestore Petty Cash onSnapshot notice:', err));
+
+    return () => {
+      unsubProducts();
+      unsubSales();
+      unsubRepairs();
+      unsubShifts();
+      unsubRecharges();
+      unsubCustomers();
+      unsubPromotions();
+      unsubSuppliers();
+      unsubPettyExpenses();
+    };
+  }, []);
+
   // Route & RBAC Permission Guard
   useEffect(() => {
     if (!currentUser) return;
@@ -243,6 +337,7 @@ function MainAppContent() {
       expectedCashTotal: initialAmount
     };
     setCashShifts(prev => [newShift, ...prev]);
+    setDoc(doc(db, 'shifts', newShift.id), newShift).catch(e => console.warn('Firestore shift write:', e));
   };
 
   const handleCloseShift = (
@@ -253,7 +348,7 @@ function MainAppContent() {
     setCashShifts(prev => prev.map(s => {
       if (s.id === shiftId) {
         const cashDiff = actualCountedCash - s.expectedCashTotal;
-        return {
+        const updated = {
           ...s,
           status: 'closed' as const,
           closedAt: new Date().toISOString(),
@@ -263,6 +358,8 @@ function MainAppContent() {
           closedByUid: currentUser.uid,
           closedByName: currentUser.displayName
         };
+        setDoc(doc(db, 'shifts', s.id), updated, { merge: true }).catch(e => console.warn('Firestore shift close:', e));
+        return updated;
       }
       return s;
     }));
@@ -276,15 +373,24 @@ function MainAppContent() {
       updatedAt: new Date().toISOString()
     };
     setProducts(prev => [created, ...prev]);
+    setDoc(doc(db, 'products', created.id), created).catch(e => console.warn('Firestore product write:', e));
   };
 
   const handleUpdateProduct = (id: string, updated: Partial<Product>) => {
-    setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updated, updatedAt: new Date().toISOString() } : p));
+    setProducts(prev => prev.map(p => {
+      if (p.id === id) {
+        const up = { ...p, ...updated, updatedAt: new Date().toISOString() };
+        setDoc(doc(db, 'products', id), up, { merge: true }).catch(e => console.warn('Firestore product update:', e));
+        return up;
+      }
+      return p;
+    }));
   };
 
   const handleDeleteProduct = (id: string) => {
     // Delete from Firestore
     deleteProductFromFirestore(id);
+    deleteDoc(doc(db, 'products', id)).catch(e => console.warn('Firestore delete:', e));
     // Update local state
     setProducts(prev => prev.filter(p => p.id !== id));
   };
@@ -297,23 +403,30 @@ function MainAppContent() {
       createdAt: new Date().toISOString()
     };
     setSuppliers(prev => [created, ...prev]);
+    setDoc(doc(db, 'suppliers', created.id), created).catch(e => console.warn('Firestore supplier write:', e));
   };
 
   const handleDeleteSupplier = (id: string) => {
     // Delete from Firestore
     deleteSupplierFromFirestore(id);
+    deleteDoc(doc(db, 'suppliers', id)).catch(e => console.warn('Firestore delete supplier:', e));
     // Update local state
     setSuppliers(prev => prev.filter(s => s.id !== id));
   };
 
   // Sale Handlers
   const handleCompleteSale = (newSale: Sale) => {
+    // Write sale to Firestore
+    setDoc(doc(db, 'sales', newSale.id), newSale).catch(e => console.warn('Firestore sale write:', e));
+
     // Update product stock
     newSale.items.forEach(item => {
       setProducts(prev => prev.map(p => {
         if (p.id === item.productId) {
           const newStock = Math.max(0, p.stock - item.quantity);
-          return { ...p, stock: newStock, updatedAt: new Date().toISOString() };
+          const updatedProd = { ...p, stock: newStock, updatedAt: new Date().toISOString() };
+          setDoc(doc(db, 'products', p.id), updatedProd, { merge: true }).catch(e => console.warn('Firestore prod stock update:', e));
+          return updatedProd;
         }
         return p;
       }));
@@ -323,12 +436,14 @@ function MainAppContent() {
     if (newSale.customerId) {
       setCustomers(prev => prev.map(c => {
         if (c.id === newSale.customerId) {
-          return {
+          const upCust = {
             ...c,
             totalPurchasesCount: (c.totalPurchasesCount || 0) + 1,
             totalSpentAmount: (c.totalSpentAmount || 0) + newSale.total,
             updatedAt: new Date().toISOString()
           };
+          setDoc(doc(db, 'customers', c.id), upCust, { merge: true }).catch(e => console.warn('Firestore customer update:', e));
+          return upCust;
         }
         return c;
       }));
@@ -352,13 +467,15 @@ function MainAppContent() {
 
       return prev.map(s => {
         if (s.id === openShift.id) {
-          return {
+          const upShift = {
             ...s,
             totalCashSales: s.totalCashSales + cashAdd,
             totalCardSales: s.totalCardSales + cardAdd,
             totalTransferSales: s.totalTransferSales + transAdd,
             expectedCashTotal: s.expectedCashTotal + cashAdd
           };
+          setDoc(doc(db, 'shifts', s.id), upShift, { merge: true }).catch(e => console.warn('Firestore shift update:', e));
+          return upShift;
         }
         return s;
       });
@@ -378,17 +495,20 @@ function MainAppContent() {
       updatedAt: new Date().toISOString()
     };
     setRepairs(prev => [created, ...prev]);
+    setDoc(doc(db, 'repairs', created.id), created).catch(e => console.warn('Firestore repair write:', e));
   };
 
   const handleUpdateRepairStatus = (id: string, newStatus: Repair['status'], diagnosticNotes?: string) => {
     setRepairs(prev => prev.map(r => {
       if (r.id === id) {
-        return {
+        const up = {
           ...r,
           status: newStatus,
           diagnosticNotes: diagnosticNotes || r.diagnosticNotes,
           updatedAt: new Date().toISOString()
         };
+        setDoc(doc(db, 'repairs', id), up, { merge: true }).catch(e => console.warn('Firestore repair status update:', e));
+        return up;
       }
       return r;
     }));
@@ -404,6 +524,8 @@ function MainAppContent() {
       createdAt: new Date().toISOString()
     };
 
+    setDoc(doc(db, 'recharges', created.id), created).catch(e => console.warn('Firestore recharge write:', e));
+
     // Update active cash shift
     setCashShifts(prev => {
       const openShift = prev.find(s => s.status === 'open');
@@ -411,12 +533,14 @@ function MainAppContent() {
 
       return prev.map(s => {
         if (s.id === openShift.id) {
-          return {
+          const upShift = {
             ...s,
             totalRechargesSales: s.totalRechargesSales + newRec.salePrice,
             totalCashSales: s.totalCashSales + newRec.salePrice,
             expectedCashTotal: s.expectedCashTotal + newRec.salePrice
           };
+          setDoc(doc(db, 'shifts', s.id), upShift, { merge: true }).catch(e => console.warn('Firestore shift update:', e));
+          return upShift;
         }
         return s;
       });
@@ -433,9 +557,11 @@ function MainAppContent() {
       createdAt: new Date().toISOString()
     };
     setPromotions(prev => [created, ...prev]);
+    setDoc(doc(db, 'promotions', created.id), created).catch(e => console.warn('Firestore promo write:', e));
   };
 
   const handleDeletePromotion = (id: string) => {
+    deleteDoc(doc(db, 'promotions', id)).catch(e => console.warn('Firestore promo delete:', e));
     setPromotions(prev => prev.filter(p => p.id !== id));
   };
 
@@ -449,24 +575,35 @@ function MainAppContent() {
       createdAt: new Date().toISOString()
     };
     setCustomers(prev => [created, ...prev]);
+    setDoc(doc(db, 'customers', created.id), created).catch(e => console.warn('Firestore customer write:', e));
   };
 
   const handleUpdateCustomer = (id: string, updated: Partial<Customer>) => {
-    setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...updated, updatedAt: new Date().toISOString() } : c));
+    setCustomers(prev => prev.map(c => {
+      if (c.id === id) {
+        const up = { ...c, ...updated, updatedAt: new Date().toISOString() };
+        setDoc(doc(db, 'customers', id), up, { merge: true }).catch(e => console.warn('Firestore customer update:', e));
+        return up;
+      }
+      return c;
+    }));
   };
 
   const handleDeleteCustomer = (id: string) => {
+    deleteDoc(doc(db, 'customers', id)).catch(e => console.warn('Firestore customer delete:', e));
     setCustomers(prev => prev.filter(c => c.id !== id));
   };
 
   // Petty Cash Fund & Expense Handlers
   const handleUpdatePettyCashFundConfig = (initialAmount: number, minThreshold: number) => {
-    setPettyCashFund(prev => ({
-      ...prev,
+    const upFund = {
+      ...pettyCashFund,
       initialAmount,
       minAlertThreshold: minThreshold,
       updatedAt: new Date().toISOString()
-    }));
+    };
+    setPettyCashFund(upFund);
+    setDoc(doc(db, 'settings', 'petty_cash_fund'), upFund, { merge: true }).catch(e => console.warn('Firestore petty cash fund config:', e));
   };
 
   const handleAddPettyCashInjection = (amount: number, concept: string) => {
@@ -478,11 +615,13 @@ function MainAppContent() {
       concept,
       createdAt: new Date().toISOString()
     };
-    setPettyCashFund(prev => ({
-      ...prev,
-      injections: [newInj, ...(prev.injections || [])],
+    const upFund = {
+      ...pettyCashFund,
+      injections: [newInj, ...(pettyCashFund.injections || [])],
       updatedAt: new Date().toISOString()
-    }));
+    };
+    setPettyCashFund(upFund);
+    setDoc(doc(db, 'settings', 'petty_cash_fund'), upFund, { merge: true }).catch(e => console.warn('Firestore petty cash injection:', e));
   };
 
   const handleRegisterPettyCashExpense = (expenseData: Omit<PettyCashExpense, 'id' | 'voucherNumber' | 'createdAt'>): PettyCashExpense => {
@@ -495,16 +634,19 @@ function MainAppContent() {
     };
 
     setPettyCashExpenses(prev => [newExpense, ...prev]);
+    setDoc(doc(db, 'petty_cash_expenses', newExpense.id), newExpense).catch(e => console.warn('Firestore expense write:', e));
 
     // Update open cash shift if linked
     if (expenseData.shiftId) {
       setCashShifts(prev => prev.map(s => {
         if (s.id === expenseData.shiftId) {
-          return {
+          const upShift = {
             ...s,
             totalPettyCashOutflows: (s.totalPettyCashOutflows || 0) + expenseData.amount,
             expectedCashTotal: s.expectedCashTotal - expenseData.amount
           };
+          setDoc(doc(db, 'shifts', s.id), upShift, { merge: true }).catch(e => console.warn('Firestore shift expense update:', e));
+          return upShift;
         }
         return s;
       }));
@@ -516,12 +658,14 @@ function MainAppContent() {
   const handleVoidPettyCashExpense = (expenseId: string, reason: string) => {
     setPettyCashExpenses(prev => prev.map(e => {
       if (e.id === expenseId) {
-        return {
+        const upExp = {
           ...e,
           status: 'Anulado' as const,
           voidReason: reason,
           notes: `${e.notes || ''} [ANULADO: ${reason}]`
         };
+        setDoc(doc(db, 'petty_cash_expenses', e.id), upExp, { merge: true }).catch(err => console.warn('Firestore expense void:', err));
+        return upExp;
       }
       return e;
     }));

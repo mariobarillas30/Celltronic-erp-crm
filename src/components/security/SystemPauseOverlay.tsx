@@ -6,7 +6,6 @@ export const SystemPauseOverlay: React.FC = () => {
   const { toggleSystemPause } = useAuth();
   const [pinInput, setPinInput] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
-  const [showPin, setShowPin] = useState(false);
 
   const handleUnlock = (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,10 +68,10 @@ export const SystemPauseOverlay: React.FC = () => {
             </label>
             <div className="relative">
               <input
-                type={showPin ? "text" : "password"}
+                type="password"
                 value={pinInput}
                 onChange={(e) => setPinInput(e.target.value)}
-                placeholder="PIN Maestro o clave mariobarillas24@gmail.com"
+                placeholder="••••••••"
                 autoFocus
                 required
                 className="w-full pl-10 pr-10 py-3 bg-slate-950 border border-slate-700 rounded-xl text-center text-white text-base font-mono tracking-widest focus:outline-none focus:border-amber-500"

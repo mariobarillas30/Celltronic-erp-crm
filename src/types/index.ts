@@ -160,6 +160,22 @@ export interface Repair {
   updatedAt: string;
 }
 
+export interface OperatorCommission {
+  commissionPercent: number; // Porcentaje de ganancia/comisión (ej: 6.5 para 6.5%)
+  active: boolean;
+  notes?: string;
+}
+
+export interface RechargeCommissionSettings {
+  claro: OperatorCommission;
+  tigo: OperatorCommission;
+  movistar: OperatorCommission;
+  digicel: OperatorCommission;
+  otra?: OperatorCommission;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface Recharge {
   id: string;
   date: string;

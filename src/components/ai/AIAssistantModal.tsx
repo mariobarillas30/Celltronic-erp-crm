@@ -175,7 +175,9 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
   };
 
   const handleCopyMessage = (id: string, text: string) => {
-    navigator.clipboard.writeText(text);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };

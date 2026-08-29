@@ -16,11 +16,14 @@ import {
   Sliders,
   Check,
   AlertTriangle,
-  KeyRound
+  KeyRound,
+  DatabaseZap,
+  RefreshCw
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { UserRole, AppUser } from '../../types';
 import { ALL_SYSTEM_MODULES, DEFAULT_ROLE_MODULES } from '../../lib/sampleData';
+import { clearTestData } from '../../lib/firebaseServices';
 
 export const UsersModule: React.FC = () => {
   const { 
@@ -42,7 +45,7 @@ export const UsersModule: React.FC = () => {
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('Cajero');
-  const [newPin, setNewPin] = useState('1234');
+  const [newPin, setNewPin] = useState('');
   const [newSelectedModules, setNewSelectedModules] = useState<string[]>(DEFAULT_ROLE_MODULES['Cajero']);
   const [tempPassAlert, setTempPassAlert] = useState<string | null>(null);
 
@@ -53,26 +56,22 @@ export const UsersModule: React.FC = () => {
   const [editRole, setEditRole] = useState<UserRole>('Cajero');
   const [editPin, setEditPin] = useState('');
   const [editSelectedModules, setEditSelectedModules] = useState<string[]>([]);
-  const [showEditPin, setShowEditPin] = useState(false);
 
   // Delete User Confirmation Modal State
   const [deletingUser, setDeletingUser] = useState<AppUser | null>(null);
+
+  // Clear Test Data State (Exclusivo CEO)
+  const [showClearDataModal, setShowClearDataModal] = useState(false);
+  const [isClearingData, setIsClearingData] = useState(false);
+  const [clearDataResult, setClearDataResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Kill Switch Provider Pin Modal State
   const [showKillSwitchModal, setShowKillSwitchModal] = useState(false);
   const [killSwitchPin, setKillSwitchPin] = useState('');
   const [killSwitchError, setKillSwitchError] = useState('');
 
-  // Toggle state to reveal/mask PIN per user ID
-  const [visiblePins, setVisiblePins] = useState<Record<string, boolean>>({});
-  const [showNewPin, setShowNewPin] = useState(false);
-
   // Active sub-tab in Users Module: 'users' or 'permissions_matrix'
   const [activeSubTab, setActiveSubTab] = useState<'users' | 'matrix'>('users');
-
-  const togglePinVisibility = (uid: string) => {
-    setVisiblePins(prev => ({ ...prev, [uid]: !prev[uid] }));
-  };
 
   const handleRoleChangeForNew = (r: UserRole) => {
     setNewRole(r);
@@ -89,9 +88,8 @@ export const UsersModule: React.FC = () => {
     setEditName(u.displayName);
     setEditEmail(u.email);
     setEditRole(u.role);
-    setEditPin(u.pin || '1234');
+    setEditPin('');
     setEditSelectedModules(u.allowedModules || DEFAULT_ROLE_MODULES[u.role] || []);
-    setShowEditPin(false);
   };
 
   const handleSaveEditUser = (e: React.FormEvent) => {
@@ -101,7 +99,7 @@ export const UsersModule: React.FC = () => {
       displayName: editName.trim(),
       email: editEmail.trim(),
       role: editRole,
-      pin: editPin.trim(),
+      ...(editPin.trim() ? { pin: editPin.trim() } : {}),
       allowedModules: editSelectedModules
     });
     setEditingUser(null);
@@ -128,19 +126,45 @@ export const UsersModule: React.FC = () => {
       email: newEmail.trim(),
       displayName: newName.trim(),
       role: newRole,
-      pin: newPin.trim(),
+      pin: newPin.trim() || '0000',
       allowedModules: newSelectedModules,
       status: 'active'
     });
     setShowAddModal(false);
     setNewEmail('');
     setNewName('');
-    setNewPin('1234');
+    setNewPin('');
   };
 
   const handleResetPass = (uid: string, name: string) => {
     const generated = resetUserPassword(uid);
     setTempPassAlert(`Contraseña temporal generada para ${name}: ${generated}`);
+  };
+
+  const handleClearTestDataClick = async () => {
+    setIsClearingData(true);
+    setClearDataResult(null);
+    try {
+      const res = await clearTestData();
+      if (res.success) {
+        setClearDataResult({
+          success: true,
+          message: `Se eliminaron con éxito ${res.deletedCount} registros de prueba de Firestore (ventas, productos, reparaciones, caja chica y turnos). Las cuentas de usuario y accesos permanecen intactos.`
+        });
+      } else {
+        setClearDataResult({
+          success: false,
+          message: res.error || 'Error al eliminar datos de prueba'
+        });
+      }
+    } catch (e: any) {
+      setClearDataResult({
+        success: false,
+        message: e?.message || 'Error inesperado al ejecutar el borrado'
+      });
+    } finally {
+      setIsClearingData(false);
+    }
   };
 
   const handleExecuteKillSwitch = (e: React.FormEvent) => {
@@ -190,7 +214,22 @@ export const UsersModule: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 w-full lg:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+          {/* Eliminar Datos de Prueba Button (Exclusivo CEO) */}
+          {isCEO && (
+            <button
+              onClick={() => {
+                setClearDataResult(null);
+                setShowClearDataModal(true);
+              }}
+              className="flex-1 lg:flex-none px-4 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-rose-950/20 transition-all cursor-pointer shrink-0"
+              title="Eliminar datos de prueba en Firestore (ventas, productos, reparaciones, turnos)"
+            >
+              <DatabaseZap className="w-4 h-4 text-rose-400" />
+              <span>Eliminar Datos de Prueba</span>
+            </button>
+          )}
+
           {/* Kill Switch Toggle Button */}
           <button
             onClick={() => {
@@ -315,23 +354,9 @@ export const UsersModule: React.FC = () => {
                         </select>
                       </td>
                       <td className="py-3 px-3">
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            type={visiblePins[u.uid] ? "text" : "password"}
-                            maxLength={6}
-                            key={`${u.uid}-${u.pin}`}
-                            defaultValue={u.pin || ''}
-                            onBlur={(e) => updateUserPin(u.uid, e.target.value)}
-                            className="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-center font-mono text-white text-xs tracking-wider"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => togglePinVisibility(u.uid)}
-                            className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition-colors"
-                            title={visiblePins[u.uid] ? "Ocultar PIN" : "Revelar PIN"}
-                          >
-                            {visiblePins[u.uid] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          </button>
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-950/80 border border-slate-800 rounded-lg text-slate-400 font-mono text-xs tracking-widest select-none">
+                          <Lock className="w-3 h-3 text-slate-500" />
+                          <span>••••</span>
                         </div>
                       </td>
                       <td className="py-3 px-3">
@@ -488,24 +513,17 @@ export const UsersModule: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-semibold mb-1">PIN Autorización</label>
+                  <label className="block text-slate-400 font-semibold mb-1">PIN Autorización *</label>
                   <div className="relative">
                     <input
-                      type={showNewPin ? "text" : "password"}
+                      type="password"
                       maxLength={6}
                       value={newPin}
                       onChange={(e) => setNewPin(e.target.value)}
-                      placeholder="1234"
-                      className="w-full pl-3 pr-9 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono text-center focus:outline-none focus:border-amber-500"
+                      placeholder="••••"
+                      required
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono text-center tracking-widest focus:outline-none focus:border-amber-500"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowNewPin(!showNewPin)}
-                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white"
-                      title={showNewPin ? "Ocultar PIN" : "Mostrar PIN"}
-                    >
-                      {showNewPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
                   </div>
                 </div>
               </div>
@@ -618,25 +636,18 @@ export const UsersModule: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-semibold mb-1">PIN Autorización</label>
+                  <label className="block text-slate-400 font-semibold mb-1">Nuevo PIN (Opcional)</label>
                   <div className="relative">
                     <input
-                      type={showEditPin ? "text" : "password"}
+                      type="password"
                       maxLength={6}
                       value={editPin}
                       onChange={(e) => setEditPin(e.target.value)}
-                      placeholder="1234"
-                      className="w-full pl-3 pr-9 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono text-center focus:outline-none focus:border-amber-500"
+                      placeholder="••••"
+                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono text-center tracking-widest focus:outline-none focus:border-amber-500"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowEditPin(!showEditPin)}
-                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white"
-                      title={showEditPin ? "Ocultar PIN" : "Mostrar PIN"}
-                    >
-                      {showEditPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
                   </div>
+                  <p className="text-[10px] text-slate-500 mt-1">Dejar vacío para conservar el actual.</p>
                 </div>
               </div>
 
@@ -724,6 +735,102 @@ export const UsersModule: React.FC = () => {
         </div>
       )}
 
+      {/* CLEAR TEST DATA CONFIRMATION MODAL (EXCLUSIVO CEO) */}
+      {showClearDataModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-rose-500/40 rounded-2xl max-w-md w-full p-6 text-slate-100 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <DatabaseZap className="w-5 h-5 text-rose-400" />
+                <span>Limpieza de Datos de Prueba</span>
+              </h3>
+              <button 
+                onClick={() => {
+                  if (!isClearingData) setShowClearDataModal(false);
+                }} 
+                disabled={isClearingData}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-300">
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 space-y-2">
+                <p className="font-bold flex items-center gap-1.5 text-rose-400">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  Atención: Acción Destructiva de Registros de Prueba
+                </p>
+                <p className="leading-relaxed">
+                  Esta acción ejecutará un borrado en lote (<code>writeBatch</code>) en Firestore de las siguientes colecciones operativas:
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 text-slate-300 font-mono text-[11px] pl-1">
+                  <li><code>sales</code> (Historial de ventas POS)</li>
+                  <li><code>products</code> / <code>inventory</code> (Catálogo y stock)</li>
+                  <li><code>repairs</code> (Tickets de servicio técnico)</li>
+                  <li><code>petty_cash</code> / <code>petty_cash_expenses</code> (Caja chica)</li>
+                  <li><code>shifts</code> / <code>cash_shifts</code> (Aperturas y cierres de turno)</li>
+                </ul>
+              </div>
+
+              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] leading-relaxed">
+                <p className="font-bold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  Protección de Cuentas Garantizada:
+                </p>
+                <p>
+                  La colección <code>users</code> y sus credenciales de acceso <strong>NO</strong> serán eliminadas. Tus usuarios, contraseñas, PINs y roles permanecerán 100% seguros e intactos.
+                </p>
+              </div>
+
+              {clearDataResult && (
+                <div
+                  className={`p-3 rounded-xl border text-xs font-semibold ${
+                    clearDataResult.success
+                      ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                      : 'bg-rose-500/20 border-rose-500/40 text-rose-300'
+                  }`}
+                >
+                  {clearDataResult.message}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isClearingData}
+                onClick={() => setShowClearDataModal(false)}
+                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-semibold transition-all cursor-pointer text-xs"
+              >
+                {clearDataResult?.success ? 'Cerrar' : 'Cancelar'}
+              </button>
+
+              {!clearDataResult?.success && (
+                <button
+                  type="button"
+                  disabled={isClearingData}
+                  onClick={handleClearTestDataClick}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl font-bold shadow-lg shadow-rose-600/25 transition-all cursor-pointer text-xs flex items-center justify-center gap-1.5"
+                >
+                  {isClearingData ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Limpiando Firestore...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Confirmar y Borrar</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* KILL SWITCH PROVEDOR AUTHORIZATION MODAL */}
       {showKillSwitchModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
@@ -758,7 +865,7 @@ export const UsersModule: React.FC = () => {
                   type="password"
                   value={killSwitchPin}
                   onChange={(e) => setKillSwitchPin(e.target.value)}
-                  placeholder="PIN Maestro o clave mariobarillas24@gmail.com"
+                  placeholder="••••••••"
                   autoFocus
                   required
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono text-center tracking-widest focus:outline-none focus:border-red-500"

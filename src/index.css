@@ -2,13 +2,18 @@
 
 @media print {
   @page {
-    margin: 0;
+    margin: 0mm !important;
     size: auto;
   }
 
-  body {
+  html, body {
+    margin: 0mm !important;
+    padding: 0mm !important;
     background: #ffffff !important;
     color: #000000 !important;
+    font-family: 'Courier New', Courier, monospace, ui-monospace !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   /* Hide UI elements from print output */
@@ -18,40 +23,56 @@
 
   /* Printable Modal Wrapper */
   .print-modal-overlay {
-    position: fixed !important;
+    position: absolute !important;
     inset: 0 !important;
     background: #ffffff !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    display: flex !important;
-    justify-content: center !important;
-    align-items: flex-start !important;
+    padding: 0mm !important;
+    margin: 0mm !important;
+    display: block !important;
     z-index: 99999 !important;
   }
 
-  /* 80mm Thermal Receipt Format (Default) */
+  /* 48mm / 58mm POS Thermal Receipt Format (Standard 384px dot pitch) */
+  .ticket-paper-48mm,
+  .ticket-paper-58mm,
+  #pos-ticket-receipt {
+    width: 48mm !important;
+    max-width: 48mm !important;
+    padding: 0mm 0.5mm !important;
+    margin: 0mm auto !important;
+    font-size: 10.5px !important;
+    line-height: 1.2 !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    color: #000000 !important;
+    background: #ffffff !important;
+    box-sizing: border-box !important;
+    word-break: break-word !important;
+    overflow: hidden !important;
+  }
+
+  /* 80mm Thermal Receipt Format */
   .ticket-paper-80mm {
     width: 80mm !important;
     max-width: 80mm !important;
-    padding: 5mm !important;
-    margin: 0 auto !important;
+    padding: 2mm !important;
+    margin: 0mm auto !important;
     font-size: 11px !important;
-    line-height: 1.3 !important;
+    line-height: 1.25 !important;
     box-shadow: none !important;
     border: none !important;
     border-radius: 0 !important;
+    color: #000000 !important;
+    background: #ffffff !important;
   }
 
-  /* 58mm Thermal Receipt Format (Mobile / Bluetooth) */
-  .ticket-paper-58mm {
-    width: 58mm !important;
-    max-width: 58mm !important;
-    padding: 2mm !important;
-    margin: 0 auto !important;
-    font-size: 9px !important;
-    line-height: 1.15 !important;
-    box-shadow: none !important;
-    border: none !important;
-    border-radius: 0 !important;
+  /* Ensure text is crisp black for thermal printing */
+  .ticket-paper-48mm *,
+  .ticket-paper-58mm *,
+  .ticket-paper-80mm *,
+  #pos-ticket-receipt * {
+    color: #000000 !important;
+    text-shadow: none !important;
   }
 }

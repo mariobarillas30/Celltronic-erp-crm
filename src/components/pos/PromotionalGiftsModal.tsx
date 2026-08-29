@@ -307,7 +307,7 @@ export const PromotionalGiftsModal: React.FC<PromotionalGiftsModalProps> = ({
                     maxLength={6}
                     value={pin}
                     onChange={(e) => setPin(e.target.value)}
-                    placeholder="PIN de CEO (ej. 9999 o 2408)"
+                    placeholder="••••"
                     className="w-full px-3.5 py-2 bg-slate-900 border border-purple-700/60 rounded-xl text-xs text-white font-mono tracking-widest text-center focus:outline-hidden focus:border-purple-400"
                   />
                 </div>
@@ -318,11 +318,6 @@ export const PromotionalGiftsModal: React.FC<PromotionalGiftsModalProps> = ({
                   <ShieldCheck className="w-4 h-4" /> Autorizar Regalías
                 </button>
               </form>
-
-              <div className="text-[10px] text-purple-300/70 font-mono flex items-center justify-between">
-                <span>PIN Maestro CEO: <strong className="text-purple-200 font-bold">9999</strong></span>
-                <span>PIN SuperAdmin: <strong className="text-purple-200 font-bold">2408</strong></span>
-              </div>
             </div>
           ) : (
             <div className="bg-emerald-950/30 border border-emerald-800/40 rounded-xl p-3 flex items-center justify-between">

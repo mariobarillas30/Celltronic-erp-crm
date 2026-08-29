@@ -19,10 +19,10 @@ interface RoleSwitchModalProps {
 }
 
 const ROLES: { role: UserRole; title: string; hint: string; icon: React.ElementType; color: string }[] = [
-  { role: 'CEO', title: 'CEO / Propietario', hint: 'PIN de CEO', icon: Crown, color: 'text-amber-400 border-amber-500/30 bg-amber-500/10' },
-  { role: 'Supervisor', title: 'Supervisor / Gerente', hint: 'PIN de Supervisor', icon: ShieldCheck, color: 'text-purple-400 border-purple-500/30 bg-purple-500/10' },
-  { role: 'Cajero', title: 'Cajero / POS', hint: 'PIN de Cajero', icon: ShoppingBag, color: 'text-cyan-400 border-cyan-500/30 bg-cyan-500/10' },
-  { role: 'Técnico', title: 'Técnico Taller', hint: 'PIN de Técnico', icon: Wrench, color: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' },
+  { role: 'CEO', title: 'CEO / Propietario', hint: 'Control Total', icon: Crown, color: 'text-amber-400 border-amber-500/30 bg-amber-500/10' },
+  { role: 'Supervisor', title: 'Supervisor / Gerente', hint: 'Supervisión & Cajas', icon: ShieldCheck, color: 'text-purple-400 border-purple-500/30 bg-purple-500/10' },
+  { role: 'Cajero', title: 'Cajero / POS', hint: 'Punto de Venta', icon: ShoppingBag, color: 'text-cyan-400 border-cyan-500/30 bg-cyan-500/10' },
+  { role: 'Técnico', title: 'Técnico Taller', hint: 'Servicio Técnico', icon: Wrench, color: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' },
 ];
 
 export const RoleSwitchModal: React.FC<RoleSwitchModalProps> = ({ isOpen, onClose }) => {

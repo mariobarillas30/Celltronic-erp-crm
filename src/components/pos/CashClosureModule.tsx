@@ -721,24 +721,19 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
               <div>
                 <input
                   type="password"
-                  maxLength={4}
+                  maxLength={6}
                   autoFocus
                   value={pinInput}
                   onChange={(e) => {
                     setPinInput(e.target.value);
                     setPinError(null);
                   }}
-                  placeholder="• • • •"
-                  className="w-full text-center tracking-[1em] text-2xl font-mono py-3 bg-slate-950 border border-slate-700 rounded-xl text-white focus:outline-hidden focus:border-amber-500"
+                  placeholder="••••"
+                  className="w-full text-center tracking-[0.5em] text-2xl font-mono py-3 bg-slate-950 border border-slate-700 rounded-xl text-white focus:outline-hidden focus:border-amber-500"
                 />
                 {pinError && (
                   <p className="text-xs text-red-400 text-center font-semibold mt-2">{pinError}</p>
                 )}
-              </div>
-
-              <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80 text-[11px] text-slate-400 space-y-0.5">
-                <p>PIN de prueba Supervisor: <span className="text-amber-400 font-bold">1234</span></p>
-                <p>PIN de prueba CEO: <span className="text-amber-400 font-bold">9999</span></p>
               </div>
 
               <div className="flex gap-2">

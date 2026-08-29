@@ -90,6 +90,16 @@ export const DEFAULT_ROLE_MODULES: Record<UserRole, string[]> = {
 
 export const INITIAL_USERS: AppUser[] = [
   {
+    uid: 'user-ceo-eguevarha',
+    email: 'eguevarha@gmail.com',
+    displayName: 'E. Guevara (CEO / Propietario)',
+    role: 'CEO',
+    pin: '9999',
+    status: 'active',
+    allowedModules: ['pos', 'arqueo', 'inventory', 'repairs', 'customers', 'recharges', 'promotions', 'kpis', 'users', 'petty_cash'],
+    createdAt: new Date().toISOString()
+  },
+  {
     uid: 'user-provider-01',
     email: 'mariobarillas24@gmail.com',
     displayName: 'Mario Barillas (CEO / Super Admin)',
