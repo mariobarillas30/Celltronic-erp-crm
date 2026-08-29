@@ -60,6 +60,16 @@ export const UsersModule: React.FC = () => {
   // Delete User Confirmation Modal State
   const [deletingUser, setDeletingUser] = useState<AppUser | null>(null);
 
+  // Visible PINs map by user UID
+  const [visiblePins, setVisiblePins] = useState<Record<string, boolean>>({});
+
+  const togglePinVisibility = (uid: string) => {
+    setVisiblePins(prev => ({
+      ...prev,
+      [uid]: !prev[uid]
+    }));
+  };
+
   // Clear Test Data State (Exclusivo CEO)
   const [showClearDataModal, setShowClearDataModal] = useState(false);
   const [isClearingData, setIsClearingData] = useState(false);
@@ -354,9 +364,24 @@ export const UsersModule: React.FC = () => {
                         </select>
                       </td>
                       <td className="py-3 px-3">
-                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-950/80 border border-slate-800 rounded-lg text-slate-400 font-mono text-xs tracking-widest select-none">
-                          <Lock className="w-3 h-3 text-slate-500" />
-                          <span>••••</span>
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-950/80 border border-slate-800 rounded-lg text-slate-300 font-mono text-xs select-none">
+                          <Lock className="w-3 h-3 text-slate-500 shrink-0" />
+                          <span className={`tracking-widest ${visiblePins[u.uid] ? 'text-cyan-400 font-bold' : 'text-slate-400'}`}>
+                            {visiblePins[u.uid] ? (u.pin || '0000') : '••••'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => togglePinVisibility(u.uid)}
+                            className="p-0.5 ml-1 text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition-colors cursor-pointer rounded"
+                            title={visiblePins[u.uid] ? "Ocultar PIN" : "Ver PIN"}
+                            aria-label={visiblePins[u.uid] ? "Ocultar PIN" : "Ver PIN"}
+                          >
+                            {visiblePins[u.uid] ? (
+                              <EyeOff className="w-3.5 h-3.5 text-cyan-400" />
+                            ) : (
+                              <Eye className="w-3.5 h-3.5 text-slate-400 hover:text-white" />
+                            )}
+                          </button>
                         </div>
                       </td>
                       <td className="py-3 px-3">
