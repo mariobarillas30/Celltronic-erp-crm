@@ -182,6 +182,7 @@ export const POSModule: React.FC<POSModuleProps> = ({
   const [customDiscountInput, setCustomDiscountInput] = useState<string>('');
   const [authorizedSupervisor, setAuthorizedSupervisor] = useState<string | null>(null);
   const [profitOverrideAuthorizedBy, setProfitOverrideAuthorizedBy] = useState<string | null>(null);
+  const [pendingDiscount, setPendingDiscount] = useState<{ mode: 'percentage' | 'fixed'; value: number } | null>(null);
 
   // Discount Supervisor PIN Modal State
   const [showPinModal, setShowPinModal] = useState(false);
@@ -192,6 +193,13 @@ export const POSModule: React.FC<POSModuleProps> = ({
   const [showProfitOverrideModal, setShowProfitOverrideModal] = useState(false);
   const [overridePin, setOverridePin] = useState('');
   const [overridePinError, setOverridePinError] = useState('');
+
+  // Regalía ($0.00) / Promotional Gifts PIN Authorization Modal State
+  const [showRegaliaPinModal, setShowRegaliaPinModal] = useState(false);
+  const [regaliaPin, setRegaliaPin] = useState('');
+  const [regaliaPinError, setRegaliaPinError] = useState('');
+  const [pendingRegaliaProductId, setPendingRegaliaProductId] = useState<string | null>(null);
+  const [pendingGiftProduct, setPendingGiftProduct] = useState<Product | null>(null);
 
   // Checkout Payment Modal State
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -238,7 +246,7 @@ export const POSModule: React.FC<POSModuleProps> = ({
   // Completed Sale Ticket Modal State
   const [completedSale, setCompletedSale] = useState<Sale | null>(null);
 
-  const categories = ['Todos', 'Dispositivos', 'Accesorios', 'Fundas', 'Cargadores', 'Repuestos', 'Servicios', 'Promocionales'];
+  const categories = ['Todos', 'Dispositivos', 'Accesorios', 'Fundas', 'Cargadores', 'Repuestos', 'Servicios', 'Promocionales', 'Regalía'];
 
   // Filter products by search and category (Excluding Recargas category from POS grid)
   const filteredProducts = useMemo(() => {
@@ -335,10 +343,20 @@ export const POSModule: React.FC<POSModuleProps> = ({
       return;
     }
 
-    // Intercept Promotional Category products: require CEO Authorization modal or add as gift
-    if (product.category === 'Promocionales' || product.isPromotional === true || product.salePrice === 0) {
+    // Intercept Promotional & Regalía Category products: require CEO / Supervisor Authorization modal or add as gift
+    const isGiftProduct = 
+      product.category === 'Regalía' || 
+      product.category === 'Promocionales' || 
+      product.isPromotional === true || 
+      product.isPromotionalGift === true || 
+      product.salePrice === 0;
+
+    if (isGiftProduct) {
       if (!promotionalAuthorizedBy && !isCEO) {
-        setShowPromoGiftModal(true);
+        setPendingGiftProduct(product);
+        setRegaliaPin('');
+        setRegaliaPinError('');
+        setShowRegaliaPinModal(true);
         return;
       } else {
         handleAddPromotionalGifts([{ product, quantity: 1 }], promotionalAuthorizedBy || (isCEO ? 'CEO' : 'Supervisor'));
@@ -624,13 +642,41 @@ export const POSModule: React.FC<POSModuleProps> = ({
     e.preventDefault();
     setPinError('');
 
+    if (!supervisorPin.trim()) {
+      setPinError('Ingrese el PIN de autorización de 4 dígitos.');
+      return;
+    }
+
     const res = verifySupervisorPin(supervisorPin);
     if (res.valid) {
-      setAuthorizedSupervisor(res.authorizedBy || 'Supervisor');
+      const authName = res.authorizedBy || 'Supervisor';
+      setAuthorizedSupervisor(authName);
+      if (pendingDiscount) {
+        setManualDiscountMode(pendingDiscount.mode);
+        setManualDiscountValue(pendingDiscount.value);
+        setCustomDiscountInput(pendingDiscount.value > 0 ? String(pendingDiscount.value) : '');
+        setPendingDiscount(null);
+      }
       setShowPinModal(false);
       setSupervisorPin('');
+      setPinError('');
     } else {
-      setPinError('PIN de Supervisor o CEO incorrecto. Intente de nuevo.');
+      setPinError('❌ PIN de Supervisor o CEO incorrecto. Verifique el PIN registrado en Firestore.');
+      // Revert/block discount
+      setPendingDiscount(null);
+      setManualDiscountValue(0);
+      setCustomDiscountInput('');
+    }
+  };
+
+  const handleClosePinModal = () => {
+    setShowPinModal(false);
+    setSupervisorPin('');
+    setPinError('');
+    setPendingDiscount(null);
+    if (!authorizedSupervisor) {
+      setManualDiscountValue(0);
+      setCustomDiscountInput('');
     }
   };
 
@@ -646,13 +692,145 @@ export const POSModule: React.FC<POSModuleProps> = ({
 
     const res = verifyCeoOrGerentePin(overridePin);
     if (res.valid) {
-      setProfitOverrideAuthorizedBy(res.authorizedBy || 'CEO / Gerente');
-      setAuthorizedSupervisor(res.authorizedBy || 'CEO / Gerente');
+      const authName = res.authorizedBy || 'CEO / Gerente';
+      setProfitOverrideAuthorizedBy(authName);
+      setAuthorizedSupervisor(authName);
+      if (pendingDiscount) {
+        setManualDiscountMode(pendingDiscount.mode);
+        setManualDiscountValue(pendingDiscount.value);
+        setCustomDiscountInput(pendingDiscount.value > 0 ? String(pendingDiscount.value) : '');
+        setPendingDiscount(null);
+      }
       setShowProfitOverrideModal(false);
       setOverridePin('');
+      setOverridePinError('');
     } else {
-      setOverridePinError('PIN inválido. Solo un usuario con rol de CEO o Gerente puede anular el bloqueo de margen.');
+      setOverridePinError('❌ PIN inválido. Solo un usuario con rol de CEO o Gerente registrado en Firestore puede autorizar un descuento que sobrepase el límite seguro.');
+      // Revert/block discount
+      setPendingDiscount(null);
+      setManualDiscountValue(0);
+      setCustomDiscountInput('');
     }
+  };
+
+  const handleCloseProfitOverrideModal = () => {
+    setShowProfitOverrideModal(false);
+    setOverridePin('');
+    setOverridePinError('');
+    setPendingDiscount(null);
+    if (!profitOverrideAuthorizedBy) {
+      setManualDiscountValue(0);
+      setCustomDiscountInput('');
+    }
+  };
+
+  // Regalía ($0.00) Toggle & PIN Authorization Handlers
+  const handleToggleItemRegalia = (item: CartItem) => {
+    if (item.isPromotionalGift) {
+      // Revert to standard price
+      setCart(prev => {
+        const next = prev.map(i =>
+          i.product.id === item.product.id
+            ? {
+                ...i,
+                unitPrice: i.product.salePrice,
+                subtotal: i.product.salePrice * i.quantity,
+                discountPercentage: 0,
+                discountAmount: 0,
+                isPromotionalGift: false,
+                promotionalAuthorizedBy: undefined
+              }
+            : i
+        );
+        if (!next.some(x => x.isPromotionalGift) && !isCEO) {
+          setPromotionalAuthorizedBy(null);
+        }
+        return next;
+      });
+    } else {
+      // Check authorization to make it $0.00 Regalía
+      if (isCEO || promotionalAuthorizedBy) {
+        const authName = promotionalAuthorizedBy || (isCEO ? 'CEO' : 'Supervisor');
+        if (!promotionalAuthorizedBy) setPromotionalAuthorizedBy(authName);
+        setCart(prev =>
+          prev.map(i =>
+            i.product.id === item.product.id
+              ? {
+                  ...i,
+                  unitPrice: 0,
+                  subtotal: 0,
+                  discountPercentage: 100,
+                  discountAmount: 0,
+                  isPromotionalGift: true,
+                  promotionalAuthorizedBy: authName
+                }
+              : i
+          )
+        );
+      } else {
+        // Block and request PIN
+        setPendingRegaliaProductId(item.product.id);
+        setRegaliaPin('');
+        setRegaliaPinError('');
+        setShowRegaliaPinModal(true);
+      }
+    }
+  };
+
+  const handleVerifyRegaliaPin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setRegaliaPinError('');
+
+    if (!regaliaPin.trim()) {
+      setRegaliaPinError('Ingrese el PIN de autorización de 4 dígitos.');
+      return;
+    }
+
+    const res = verifyCeoPin(regaliaPin) || verifyCeoOrGerentePin(regaliaPin) || verifySupervisorPin(regaliaPin);
+    if (res.valid) {
+      const authName = res.authorizedBy || 'CEO';
+      setPromotionalAuthorizedBy(authName);
+
+      if (pendingRegaliaProductId) {
+        setCart(prev =>
+          prev.map(i =>
+            i.product.id === pendingRegaliaProductId
+              ? {
+                  ...i,
+                  unitPrice: 0,
+                  subtotal: 0,
+                  discountPercentage: 100,
+                  discountAmount: 0,
+                  isPromotionalGift: true,
+                  promotionalAuthorizedBy: authName
+                }
+              : i
+          )
+        );
+        setPendingRegaliaProductId(null);
+      }
+
+      if (pendingGiftProduct) {
+        handleAddPromotionalGifts([{ product: pendingGiftProduct, quantity: 1 }], authName);
+        setPendingGiftProduct(null);
+      }
+
+      setShowRegaliaPinModal(false);
+      setRegaliaPin('');
+      setRegaliaPinError('');
+    } else {
+      setRegaliaPinError('❌ PIN de autorización incorrecto. Verifique el PIN de CEO o Supervisor registrado en Firestore.');
+      setPendingRegaliaProductId(null);
+      setPendingGiftProduct(null);
+    }
+  };
+
+  const handleCloseRegaliaPinModal = () => {
+    setShowRegaliaPinModal(false);
+    setRegaliaPin('');
+    setRegaliaPinError('');
+    setPendingRegaliaProductId(null);
+    setPendingGiftProduct(null);
   };
 
   // Manual Discount Selector Handler with dynamic Profit Protection trigger
@@ -662,13 +840,12 @@ export const POSModule: React.FC<POSModuleProps> = ({
       return;
     }
 
-    setManualDiscountMode(mode);
-    setManualDiscountValue(val);
-    setCustomDiscountInput(val > 0 ? String(val) : '');
-
-    // If changing discount, reset prior profit override if not matching
+    // If clearing discount
     if (val === 0) {
-      setProfitOverrideAuthorizedBy(null);
+      setManualDiscountMode(mode);
+      setManualDiscountValue(0);
+      setCustomDiscountInput('');
+      setPendingDiscount(null);
       return;
     }
 
@@ -678,17 +855,46 @@ export const POSModule: React.FC<POSModuleProps> = ({
       ? (availableBase * val) / 100 
       : Math.min(availableBase, val);
 
-    // Strict Profit Protection Check (> 50% of real profit)
-    if (targetDiscountDollar > (maxProfitSafeDiscount + 0.001)) {
-      if (!profitOverrideAuthorizedBy && !isCEO) {
+    // If current logged in user is CEO, they have direct authority
+    if (isCEO) {
+      setManualDiscountMode(mode);
+      setManualDiscountValue(val);
+      setCustomDiscountInput(val > 0 ? String(val) : '');
+      setAuthorizedSupervisor('CEO');
+      setProfitOverrideAuthorizedBy('CEO');
+      return;
+    }
+
+    // Profit Protection Check (> 50% of real profit or exceeds safe cap)
+    const isExceeding = targetDiscountDollar > (maxProfitSafeDiscount + 0.001);
+
+    if (isExceeding) {
+      if (profitOverrideAuthorizedBy) {
+        // Already authorized by CEO/Gerente
+        setManualDiscountMode(mode);
+        setManualDiscountValue(val);
+        setCustomDiscountInput(val > 0 ? String(val) : '');
+      } else {
+        // Block and prompt CEO / Gerente Override PIN modal
+        setPendingDiscount({ mode, value: val });
+        setOverridePin('');
+        setOverridePinError('');
         setShowProfitOverrideModal(true);
-        return;
       }
+      return;
+    }
+
+    // Standard discount within safe limit
+    if (authorizedSupervisor || isSupervisor) {
+      setManualDiscountMode(mode);
+      setManualDiscountValue(val);
+      setCustomDiscountInput(val > 0 ? String(val) : '');
     } else {
-      // Standard supervisor check for cashiers applying manual discount
-      if (val > 0 && !authorizedSupervisor && !isSupervisor) {
-        setShowPinModal(true);
-      }
+      // Cashier requires Supervisor PIN
+      setPendingDiscount({ mode, value: val });
+      setSupervisorPin('');
+      setPinError('');
+      setShowPinModal(true);
     }
   };
 
@@ -708,9 +914,17 @@ export const POSModule: React.FC<POSModuleProps> = ({
     }
 
     // Standard PIN check: manual discount MUST have PIN authorization flag
-    if (manualDiscountAmount > 0 && !authorizedSupervisor && !isSupervisor) {
+    if (manualDiscountAmount > 0 && !authorizedSupervisor && !isSupervisor && !isCEO) {
       alert('🔒 Validación Requerida: El descuento manual aplicado requiere la validación con PIN de Supervisor o Gerente.');
       setShowPinModal(true);
+      return;
+    }
+
+    // Regalía check: If any gift item in cart without authorization flag
+    const hasGifts = cart.some(i => i.isPromotionalGift);
+    if (hasGifts && !promotionalAuthorizedBy && !isCEO) {
+      alert('🔒 Validación Requerida: Los artículos marcados como Regalía ($0.00) requieren autorización con PIN de CEO o Supervisor.');
+      setShowRegaliaPinModal(true);
       return;
     }
 

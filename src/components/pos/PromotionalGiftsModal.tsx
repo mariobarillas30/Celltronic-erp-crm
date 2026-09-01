@@ -36,13 +36,13 @@ export const PromotionalGiftsModal: React.FC<PromotionalGiftsModalProps> = ({
   onAddPromotionalGifts,
   currentAuthorizedBy
 }) => {
-  const { isCEO, verifyCeoPin, verifyCeoOrGerentePin } = useAuth();
+  const { isCEO, isSupervisor, isGerente, verifyCeoPin, verifyCeoOrGerentePin, verifySupervisorPin } = useAuth();
 
-  // CEO PIN Authorization state
+  // CEO / Supervisor PIN Authorization state
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [authorizedBy, setAuthorizedBy] = useState<string | null>(
-    currentAuthorizedBy || (isCEO ? 'CEO' : null)
+    currentAuthorizedBy || (isCEO ? 'CEO' : isGerente ? 'Gerente' : null)
   );
 
   // Tab filter / view mode: 'suggested' (chips, covers, micas, audífonos, etc.) or 'all' (todo el inventario general)
@@ -146,24 +146,17 @@ export const PromotionalGiftsModal: React.FC<PromotionalGiftsModalProps> = ({
     setPinError('');
 
     if (!pin.trim()) {
-      setPinError('Ingrese el PIN de autorización del CEO o Gerente.');
+      setPinError('Ingrese el PIN de autorización del CEO o Supervisor.');
       return;
     }
 
-    const res = verifyCeoPin(pin);
+    const res = verifyCeoPin(pin) || verifyCeoOrGerentePin(pin) || verifySupervisorPin(pin);
     if (res.valid) {
       setAuthorizedBy(res.authorizedBy || 'CEO');
       setPin('');
       setPinError('');
     } else {
-      const altRes = verifyCeoOrGerentePin(pin);
-      if (altRes.valid) {
-        setAuthorizedBy(altRes.authorizedBy || 'CEO / Gerente');
-        setPin('');
-        setPinError('');
-      } else {
-        setPinError('PIN de Autorización incorrecto. Ingrese el PIN de CEO o Gerente asignado.');
-      }
+      setPinError('❌ PIN de Autorización incorrecto. Ingrese el PIN de CEO o Supervisor registrado en Firestore.');
     }
   };
 
@@ -205,11 +198,11 @@ export const PromotionalGiftsModal: React.FC<PromotionalGiftsModalProps> = ({
     // Require authorization PIN if not yet authorized and not CEO
     if (!authorizedBy && !isCEO) {
       if (!pin.trim()) {
-        setPinError('Debe ingresar el PIN del CEO (9999 o 2408) para autorizar la inclusión de regalías.');
+        setPinError('Debe ingresar el PIN de autorización del CEO o Supervisor registrado en Firestore.');
         return;
       }
 
-      const res = verifyCeoPin(pin);
+      const res = verifyCeoPin(pin) || verifyCeoOrGerentePin(pin) || verifySupervisorPin(pin);
       if (res.valid) {
         const authName = res.authorizedBy || 'CEO';
         setAuthorizedBy(authName);
@@ -220,18 +213,7 @@ export const PromotionalGiftsModal: React.FC<PromotionalGiftsModalProps> = ({
         return;
       }
 
-      const altRes = verifyCeoOrGerentePin(pin);
-      if (altRes.valid) {
-        const authName = altRes.authorizedBy || 'CEO / Gerente';
-        setAuthorizedBy(authName);
-        onAddPromotionalGifts(itemsToAdd, authName);
-        setSelectedPromos({});
-        setPin('');
-        onClose();
-        return;
-      }
-
-      setPinError('PIN de Autorización del CEO incorrecto (9999 o 2408).');
+      setPinError('❌ PIN de Autorización incorrecto. Verifique el PIN del CEO o Supervisor registrado en Firestore.');
       return;
     }
 
