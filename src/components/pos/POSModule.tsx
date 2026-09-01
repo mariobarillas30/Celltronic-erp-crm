@@ -262,6 +262,24 @@ export const POSModule: React.FC<POSModuleProps> = ({
     return null;
   };
 
+  // Helper to recursively remove undefined properties so Firestore never receives invalid data
+  const sanitizeForFirestore = <T extends Record<string, any>>(obj: T): T => {
+    if (Array.isArray(obj)) {
+      return obj.map(item => (typeof item === 'object' && item !== null ? sanitizeForFirestore(item) : item)) as unknown as T;
+    }
+    const clean: Record<string, any> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value !== undefined) {
+        if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+          clean[key] = sanitizeForFirestore(value);
+        } else {
+          clean[key] = value;
+        }
+      }
+    }
+    return clean as T;
+  };
+
   // Atomic Firestore Transaction helper to prevent concurrency issues & overselling
   const processAtomicSaleInFirestore = async (sale: Sale): Promise<{ success: boolean; error?: string }> => {
     try {
@@ -301,7 +319,7 @@ export const POSModule: React.FC<POSModuleProps> = ({
           } else {
             const localProd = products.find(p => p.id === item.productId);
             const currentStock = localProd ? localProd.stock : item.quantity;
-            transaction.set(ref, {
+            const fallbackProdData = sanitizeForFirestore({
               ...(localProd || {}),
               id: item.productId,
               name: item.name,
@@ -310,12 +328,14 @@ export const POSModule: React.FC<POSModuleProps> = ({
               stock: Math.max(0, currentStock - item.quantity),
               updatedAt: new Date().toISOString()
             });
+            transaction.set(ref, fallbackProdData);
           }
         }
 
-        // Step 4: Write sale record atomically
+        // Step 4: Write sale record atomically (ensuring no undefined fields)
         const saleRef = doc(collection(db, 'sales'), sale.id);
-        transaction.set(saleRef, sale);
+        const cleanSaleData = sanitizeForFirestore(sale);
+        transaction.set(saleRef, cleanSaleData);
       });
 
       return { success: true };
@@ -734,37 +754,44 @@ export const POSModule: React.FC<POSModuleProps> = ({
     const paidNum = parseFloat(amountPaid) || grandTotal;
     const change = Math.max(0, paidNum - grandTotal);
 
+    const cleanCustomerName = selectedCustomer ? selectedCustomer.fullName : (customerName.trim() || 'Cliente Contado');
+    const cleanCustomerPhone = selectedCustomer ? selectedCustomer.phone : customerPhone.trim();
+    const discountAuth = profitOverrideAuthorizedBy || authorizedSupervisor || (isCEO ? 'CEO' : '');
+
     const newSale: Sale = {
       id: `sale-${Date.now()}`,
       ticketNumber: `FAC-${Math.floor(100000 + Math.random() * 900000)}`,
       date: new Date().toISOString(),
-      cashierUid: 'cajero-pos',
-      cashierName: role,
-      customerId: selectedCustomer?.id,
-      customerName: selectedCustomer ? selectedCustomer.fullName : (customerName.trim() || 'Cliente Contado'),
-      customerPhone: selectedCustomer ? selectedCustomer.phone : (customerPhone.trim() || undefined),
-      customerDocType: selectedCustomer?.docType,
-      customerDocNumber: selectedCustomer?.docNumber,
-      customerRazonSocial: selectedCustomer?.razonSocial || (selectedCustomer ? selectedCustomer.fullName : undefined),
-      customerAddress: selectedCustomer?.address,
-      customerGiro: selectedCustomer?.giro,
-      items: cart.map(item => ({
-        productId: item.product.id,
-        code: item.product.code,
-        name: item.product.name,
-        category: item.product.category,
-        quantity: item.quantity,
-        unitCost: item.product.costPrice,
-        unitPrice: item.isPromotionalGift ? 0 : item.unitPrice,
-        discountAmount: item.isPromotionalGift ? 0 : (item.discountAmount + ((item.subtotal * manualDiscountPercent) / 100)),
-        subtotal: item.isPromotionalGift ? 0 : (item.subtotal * (1 - manualDiscountPercent / 100)),
-        isPromotionalGift: item.isPromotionalGift,
-        promotionalAuthorizedBy: item.promotionalAuthorizedBy
-      })),
+      cashierUid: currentUser?.uid || 'cajero-pos',
+      cashierName: currentUser?.displayName || role || 'Cajero',
+      ...(selectedCustomer?.id ? { customerId: selectedCustomer.id } : {}),
+      ...(cleanCustomerName ? { customerName: cleanCustomerName } : {}),
+      ...(cleanCustomerPhone ? { customerPhone: cleanCustomerPhone } : {}),
+      ...(selectedCustomer?.docType ? { customerDocType: selectedCustomer.docType } : {}),
+      ...(selectedCustomer?.docNumber ? { customerDocNumber: selectedCustomer.docNumber } : {}),
+      ...(selectedCustomer?.razonSocial ? { customerRazonSocial: selectedCustomer.razonSocial } : {}),
+      ...(selectedCustomer?.address ? { customerAddress: selectedCustomer.address } : {}),
+      ...(selectedCustomer?.giro ? { customerGiro: selectedCustomer.giro } : {}),
+      items: cart.map(item => {
+        const itemObj: Sale['items'][0] = {
+          productId: item.product.id,
+          code: item.product.code,
+          name: item.product.name,
+          category: item.product.category,
+          quantity: item.quantity,
+          unitCost: item.product.costPrice,
+          unitPrice: item.isPromotionalGift ? 0 : item.unitPrice,
+          discountAmount: item.isPromotionalGift ? 0 : (item.discountAmount + ((item.subtotal * manualDiscountPercent) / 100)),
+          subtotal: item.isPromotionalGift ? 0 : (item.subtotal * (1 - manualDiscountPercent / 100)),
+          ...(item.isPromotionalGift ? { isPromotionalGift: true } : {}),
+          ...(item.promotionalAuthorizedBy ? { promotionalAuthorizedBy: item.promotionalAuthorizedBy } : {})
+        };
+        return itemObj;
+      }),
       subtotal: rawSubtotal,
       discountTotal: totalDiscount,
-      discountAuthorizedBy: profitOverrideAuthorizedBy || authorizedSupervisor || (isCEO ? 'CEO' : undefined),
-      promotionalAuthorizedBy: promotionalAuthorizedBy || undefined,
+      ...(discountAuth ? { discountAuthorizedBy: discountAuth } : {}),
+      ...(promotionalAuthorizedBy ? { promotionalAuthorizedBy } : {}),
       total: grandTotal,
       paymentMethod,
       amountPaid: paidNum,
