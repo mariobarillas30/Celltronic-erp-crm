@@ -48,7 +48,8 @@ import {
 } from './lib/sampleData';
 import { deleteProductFromFirestore, deleteSupplierFromFirestore } from './lib/firestoreUtils';
 import { db } from './lib/firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, runTransaction } from 'firebase/firestore';
+import { sanitizeForFirestore } from './lib/firebaseServices';
 import { ShieldAlert, ArrowLeft } from 'lucide-react';
 
 // Application Version Control & Auto-Migration (v2.7)
@@ -285,7 +286,8 @@ function MainAppContent() {
       updatedAt: new Date().toISOString()
     };
     try {
-      await setDoc(doc(db, 'products', created.id), created);
+      const cleanData = sanitizeForFirestore(created);
+      await setDoc(doc(db, 'products', created.id), cleanData);
     } catch (e: any) {
       console.error('Error creating product in Firestore:', e);
       alert(`❌ Error al crear producto en Firestore: ${e?.message || 'Error de conexión'}`);
@@ -294,7 +296,7 @@ function MainAppContent() {
 
   const handleUpdateProduct = async (id: string, updated: Partial<Product>) => {
     try {
-      const up = { ...updated, updatedAt: new Date().toISOString() };
+      const up = sanitizeForFirestore({ ...updated, updatedAt: new Date().toISOString() });
       await setDoc(doc(db, 'products', id), up, { merge: true });
     } catch (e: any) {
       console.error('Error updating product in Firestore:', e);
@@ -319,7 +321,8 @@ function MainAppContent() {
       createdAt: new Date().toISOString()
     };
     try {
-      await setDoc(doc(db, 'suppliers', created.id), created);
+      const cleanData = sanitizeForFirestore(created);
+      await setDoc(doc(db, 'suppliers', created.id), cleanData);
     } catch (e: any) {
       console.error('Error creating supplier in Firestore:', e);
       alert(`❌ Error al crear proveedor en Firestore: ${e?.message || 'Error de conexión'}`);
@@ -376,7 +379,7 @@ function MainAppContent() {
 
   // Repair Handlers
   const handleAddRepair = async (newRep: Omit<Repair, 'id' | 'ticketNumber' | 'receivedDate' | 'updatedAt'>) => {
-    const ticketNumber = `REP-${Math.floor(1000 + Math.random() * 9000)}`;
+    const ticketNumber = (newRep as any).ticketNumber || `REP-${Math.floor(1000 + Math.random() * 9000)}`;
     const created: Repair = {
       ...newRep,
       id: `rep-${Date.now()}`,
@@ -385,7 +388,8 @@ function MainAppContent() {
       updatedAt: new Date().toISOString()
     };
     try {
-      await setDoc(doc(db, 'repairs', created.id), created);
+      const cleanData = sanitizeForFirestore(created);
+      await setDoc(doc(db, 'repairs', created.id), cleanData);
     } catch (e: any) {
       console.error('Error creating repair in Firestore:', e);
       alert(`❌ Error al registrar reparación en Firestore: ${e?.message || 'Error de conexión'}`);
@@ -398,10 +402,11 @@ function MainAppContent() {
         status: newStatus,
         updatedAt: new Date().toISOString()
       };
-      if (diagnosticNotes !== undefined) {
-        up.diagnosticNotes = diagnosticNotes;
+      if (diagnosticNotes !== undefined && diagnosticNotes.trim() !== '') {
+        up.diagnosticNotes = diagnosticNotes.trim();
       }
-      await setDoc(doc(db, 'repairs', id), up, { merge: true });
+      const cleanUp = sanitizeForFirestore(up);
+      await setDoc(doc(db, 'repairs', id), cleanUp, { merge: true });
     } catch (e: any) {
       console.error('Error updating repair in Firestore:', e);
       alert(`❌ Error al actualizar reparación en Firestore: ${e?.message || 'Error de conexión'}`);
@@ -419,16 +424,17 @@ function MainAppContent() {
     };
 
     try {
-      await setDoc(doc(db, 'recharges', created.id), created);
+      const cleanRec = sanitizeForFirestore(created);
+      await setDoc(doc(db, 'recharges', created.id), cleanRec);
 
       // Update active cash shift
       const openShift = cashShifts.find(s => s.status === 'open');
       if (openShift) {
-        const upShift = {
+        const upShift = sanitizeForFirestore({
           totalRechargesSales: (openShift.totalRechargesSales || 0) + newRec.salePrice,
           totalCashSales: (openShift.totalCashSales || 0) + newRec.salePrice,
           expectedCashTotal: (openShift.expectedCashTotal || 0) + newRec.salePrice
-        };
+        });
         await setDoc(doc(db, 'shifts', openShift.id), upShift, { merge: true });
       }
     } catch (e: any) {
@@ -445,7 +451,8 @@ function MainAppContent() {
       createdAt: new Date().toISOString()
     };
     try {
-      await setDoc(doc(db, 'promotions', created.id), created);
+      const cleanPromo = sanitizeForFirestore(created);
+      await setDoc(doc(db, 'promotions', created.id), cleanPromo);
     } catch (e: any) {
       console.error('Error creating promotion in Firestore:', e);
       alert(`❌ Error al crear promoción en Firestore: ${e?.message || 'Error de conexión'}`);
@@ -471,7 +478,8 @@ function MainAppContent() {
       createdAt: new Date().toISOString()
     };
     try {
-      await setDoc(doc(db, 'customers', created.id), created);
+      const cleanCust = sanitizeForFirestore(created);
+      await setDoc(doc(db, 'customers', created.id), cleanCust);
     } catch (e: any) {
       console.error('Error creating customer in Firestore:', e);
       alert(`❌ Error al registrar cliente en Firestore: ${e?.message || 'Error de conexión'}`);
@@ -480,7 +488,7 @@ function MainAppContent() {
 
   const handleUpdateCustomer = async (id: string, updated: Partial<Customer>) => {
     try {
-      const up = { ...updated, updatedAt: new Date().toISOString() };
+      const up = sanitizeForFirestore({ ...updated, updatedAt: new Date().toISOString() });
       await setDoc(doc(db, 'customers', id), up, { merge: true });
     } catch (e: any) {
       console.error('Error updating customer in Firestore:', e);
@@ -535,43 +543,77 @@ function MainAppContent() {
     }
   };
 
-  const handleRegisterPettyCashExpense = (expenseData: Omit<PettyCashExpense, 'id' | 'voucherNumber' | 'createdAt'>): PettyCashExpense => {
+  const handleRegisterPettyCashExpense = async (
+    expenseData: Omit<PettyCashExpense, 'id' | 'voucherNumber' | 'createdAt'>
+  ): Promise<PettyCashExpense> => {
+    const expenseId = `exp-${Date.now()}`;
     const voucherNumber = `CC-2026-${String(pettyCashExpenses.length + 1).padStart(3, '0')}`;
+    
+    // Construct the clean expense object with NO undefined fields
     const newExpense: PettyCashExpense = {
-      ...expenseData,
-      id: `exp-${Date.now()}`,
+      id: expenseId,
       voucherNumber,
+      date: expenseData.date || new Date().toISOString(),
+      cashierUid: expenseData.cashierUid || currentUser?.uid || 'user-cajero-01',
+      cashierName: expenseData.cashierName || currentUser?.displayName || 'Cajero en Sesión',
+      ...(expenseData.shiftId ? { shiftId: expenseData.shiftId } : {}),
+      amount: expenseData.amount,
+      category: expenseData.category,
+      recipientOrSupplier: expenseData.recipientOrSupplier,
+      concept: expenseData.concept,
+      invoiceOrReceiptNumber: expenseData.invoiceOrReceiptNumber,
+      ...(expenseData.notes ? { notes: expenseData.notes } : {}),
+      ...(expenseData.receiptPhotoUrl ? { receiptPhotoUrl: expenseData.receiptPhotoUrl } : {}),
+      status: expenseData.status || 'Registrado',
       createdAt: new Date().toISOString()
     };
 
-    setDoc(doc(db, 'petty_cash_expenses', newExpense.id), newExpense).catch(e => {
-      console.error('Firestore expense write error:', e);
-      alert(`❌ Error al registrar gasto en Firestore: ${e?.message || 'Error de conexión'}`);
-    });
+    const cleanExpenseData = sanitizeForFirestore(newExpense);
 
-    // Update open cash shift if linked
-    if (expenseData.shiftId) {
-      const openShift = cashShifts.find(s => s.id === expenseData.shiftId);
-      if (openShift) {
-        const upShift = {
-          totalPettyCashOutflows: (openShift.totalPettyCashOutflows || 0) + expenseData.amount,
-          expectedCashTotal: (openShift.expectedCashTotal || 0) - expenseData.amount
-        };
-        setDoc(doc(db, 'shifts', openShift.id), upShift, { merge: true }).catch(e => console.error('Firestore shift expense update error:', e));
+    try {
+      if (expenseData.shiftId) {
+        // Atomic Transaction: Create expense AND update cash shift simultaneously
+        const shiftRef = doc(db, 'shifts', expenseData.shiftId);
+        const expenseRef = doc(collection(db, 'petty_cash_expenses'), expenseId);
+
+        await runTransaction(db, async (transaction) => {
+          const shiftSnap = await transaction.get(shiftRef);
+          
+          // Write the expense in Firestore
+          transaction.set(expenseRef, cleanExpenseData);
+
+          if (shiftSnap.exists()) {
+            const shiftData = shiftSnap.data() as CashShift;
+            const prevOutflows = shiftData.totalPettyCashOutflows || 0;
+            const prevExpected = shiftData.expectedCashTotal || 0;
+            transaction.update(shiftRef, {
+              totalPettyCashOutflows: prevOutflows + expenseData.amount,
+              expectedCashTotal: prevExpected - expenseData.amount
+            });
+          }
+        });
+      } else {
+        // Direct expense with no shiftId (e.g. CEO direct operational cost)
+        const expenseRef = doc(collection(db, 'petty_cash_expenses'), expenseId);
+        await setDoc(expenseRef, cleanExpenseData);
       }
-    }
 
-    return newExpense;
+      return newExpense;
+    } catch (e: any) {
+      console.error('Error registrando salida de efectivo en Firestore:', e);
+      throw new Error(`Error en Firestore al registrar salida: ${e?.message || 'Error de conexión'}`);
+    }
   };
 
   const handleVoidPettyCashExpense = async (expenseId: string, reason: string) => {
     const target = pettyCashExpenses.find(e => e.id === expenseId);
     if (!target) return;
-    const upExp = {
+    const upExp = sanitizeForFirestore({
       status: 'Anulado' as const,
       voidReason: reason,
-      notes: `${target.notes || ''} [ANULADO: ${reason}]`
-    };
+      notes: `${target.notes || ''} [ANULADO: ${reason}]`.trim(),
+      updatedAt: new Date().toISOString()
+    });
     try {
       await setDoc(doc(db, 'petty_cash_expenses', expenseId), upExp, { merge: true });
     } catch (err: any) {

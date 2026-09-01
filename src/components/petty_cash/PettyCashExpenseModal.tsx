@@ -9,7 +9,8 @@ import {
   FileText, 
   AlertCircle,
   Building,
-  Tag
+  Tag,
+  Loader2
 } from 'lucide-react';
 import { PettyCashExpense, PettyCashExpenseCategory, Supplier } from '../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -19,7 +20,7 @@ interface PettyCashExpenseModalProps {
   onClose: () => void;
   suppliers: Supplier[];
   currentShiftId?: string;
-  onRegisterExpense: (expense: Omit<PettyCashExpense, 'id' | 'voucherNumber' | 'createdAt'>) => PettyCashExpense;
+  onRegisterExpense: (expense: Omit<PettyCashExpense, 'id' | 'voucherNumber' | 'createdAt'>) => Promise<PettyCashExpense> | PettyCashExpense;
 }
 
 const EXPENSE_CATEGORIES: PettyCashExpenseCategory[] = [
@@ -49,13 +50,14 @@ export const PettyCashExpenseModal: React.FC<PettyCashExpenseModalProps> = ({
   const [invoiceNumber, setInvoiceNumber] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Generated voucher state upon success
   const [generatedExpense, setGeneratedExpense] = useState<PettyCashExpense | null>(null);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -80,21 +82,33 @@ export const PettyCashExpenseModal: React.FC<PettyCashExpenseModalProps> = ({
       return;
     }
 
-    const created = onRegisterExpense({
-      date: new Date().toISOString(),
-      cashierUid: currentUser?.uid || 'user-cajero-01',
-      cashierName: currentUser?.displayName || 'Cajero en Sesión',
-      shiftId: currentShiftId,
-      amount: parsedAmount,
-      category,
-      recipientOrSupplier: recipient.trim(),
-      concept: concept.trim(),
-      invoiceOrReceiptNumber: invoiceNumber.trim(),
-      notes: notes.trim() || undefined,
-      status: 'Registrado'
-    });
+    const cleanNotes = notes.trim();
+    const cleanShiftId = currentShiftId?.trim();
 
-    setGeneratedExpense(created);
+    setIsSubmitting(true);
+    try {
+      const expensePayload: Omit<PettyCashExpense, 'id' | 'voucherNumber' | 'createdAt'> = {
+        date: new Date().toISOString(),
+        cashierUid: currentUser?.uid || 'user-cajero-01',
+        cashierName: currentUser?.displayName || 'Cajero en Sesión',
+        ...(cleanShiftId ? { shiftId: cleanShiftId } : {}),
+        amount: parsedAmount,
+        category,
+        recipientOrSupplier: recipient.trim(),
+        concept: concept.trim(),
+        invoiceOrReceiptNumber: invoiceNumber.trim(),
+        ...(cleanNotes ? { notes: cleanNotes } : {}),
+        status: 'Registrado'
+      };
+
+      const created = await onRegisterExpense(expensePayload);
+      setGeneratedExpense(created);
+    } catch (err: any) {
+      console.error('Error al registrar salida de efectivo:', err);
+      setError(err?.message || 'Error al registrar la salida de efectivo en Firestore. Intente nuevamente.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleResetAndClose = () => {
@@ -105,6 +119,7 @@ export const PettyCashExpenseModal: React.FC<PettyCashExpenseModalProps> = ({
     setInvoiceNumber('');
     setNotes('');
     setError('');
+    setIsSubmitting(false);
     setGeneratedExpense(null);
     onClose();
   };
@@ -365,17 +380,28 @@ export const PettyCashExpenseModal: React.FC<PettyCashExpenseModalProps> = ({
             <div className="flex gap-2 pt-2">
               <button
                 type="button"
+                disabled={isSubmitting}
                 onClick={handleResetAndClose}
-                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-all cursor-pointer border border-slate-700"
+                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-all cursor-pointer border border-slate-700 disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-lg shadow-amber-500/20 cursor-pointer flex items-center justify-center gap-1.5"
+                disabled={isSubmitting}
+                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-lg shadow-amber-500/20 cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-60"
               >
-                <Receipt className="w-4 h-4" />
-                Registrar Salida & Generar Vale
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Guardando en Firestore...</span>
+                  </>
+                ) : (
+                  <>
+                    <Receipt className="w-4 h-4" />
+                    <span>Registrar Salida & Generar Vale</span>
+                  </>
+                )}
               </button>
             </div>
           </form>

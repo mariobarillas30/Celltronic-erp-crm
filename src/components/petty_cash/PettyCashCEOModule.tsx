@@ -36,7 +36,7 @@ interface PettyCashCEOModuleProps {
   cashShifts?: CashShift[];
   onUpdateFundConfig: (initialAmount: number, minAlertThreshold: number) => void;
   onAddFundInjection: (amount: number, concept: string) => void;
-  onRegisterExpense: (expense: Omit<PettyCashExpense, 'id' | 'voucherNumber' | 'createdAt'>) => PettyCashExpense;
+  onRegisterExpense: (expense: Omit<PettyCashExpense, 'id' | 'voucherNumber' | 'createdAt'>) => Promise<PettyCashExpense> | PettyCashExpense;
   onVoidExpense: (expenseId: string, reason: string) => void;
 }
 
@@ -44,12 +44,14 @@ export const PettyCashCEOModule: React.FC<PettyCashCEOModuleProps> = ({
   fund,
   expenses,
   suppliers,
+  cashShifts = [],
   onUpdateFundConfig,
   onAddFundInjection,
   onRegisterExpense,
   onVoidExpense
 }) => {
   const { isCEO, role, currentUser } = useAuth();
+  const activeShift = useMemo(() => cashShifts.find(s => s.status === 'open') || null, [cashShifts]);
 
   // Navigation Subtabs
   const [activeSubtab, setActiveSubtab] = useState<'expenses' | 'injections' | 'analytics'>('expenses');
@@ -859,6 +861,7 @@ export const PettyCashCEOModule: React.FC<PettyCashCEOModuleProps> = ({
         isOpen={showDirectExpenseModal}
         onClose={() => setShowDirectExpenseModal(false)}
         suppliers={suppliers}
+        currentShiftId={activeShift?.id}
         onRegisterExpense={onRegisterExpense}
       />
 

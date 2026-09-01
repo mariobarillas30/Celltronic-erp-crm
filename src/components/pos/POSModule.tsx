@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { doc, runTransaction, collection } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { sanitizeForFirestore } from '../../lib/firebaseServices';
 import { Product, CartItem, Sale, PaymentMethod, Promotion, CashShift, Customer, DocumentType, CustomerType, Supplier, PettyCashExpense } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { PettyCashExpenseModal } from '../petty_cash/PettyCashExpenseModal';
@@ -49,7 +50,7 @@ interface POSModuleProps {
   suppliers?: Supplier[];
   onCompleteSale: (sale: Sale) => void;
   onAddCustomer?: (customer: Omit<Customer, 'id' | 'createdAt'>) => void;
-  onRegisterPettyCashExpense?: (expense: Omit<PettyCashExpense, 'id' | 'voucherNumber' | 'createdAt'>) => PettyCashExpense;
+  onRegisterPettyCashExpense?: (expense: Omit<PettyCashExpense, 'id' | 'voucherNumber' | 'createdAt'>) => Promise<PettyCashExpense> | PettyCashExpense;
   activeCashShift?: CashShift | null;
   onGoToArqueo?: () => void;
 }
@@ -260,24 +261,6 @@ export const POSModule: React.FC<POSModuleProps> = ({
       }
     }
     return null;
-  };
-
-  // Helper to recursively remove undefined properties so Firestore never receives invalid data
-  const sanitizeForFirestore = <T extends Record<string, any>>(obj: T): T => {
-    if (Array.isArray(obj)) {
-      return obj.map(item => (typeof item === 'object' && item !== null ? sanitizeForFirestore(item) : item)) as unknown as T;
-    }
-    const clean: Record<string, any> = {};
-    for (const [key, value] of Object.entries(obj)) {
-      if (value !== undefined) {
-        if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
-          clean[key] = sanitizeForFirestore(value);
-        } else {
-          clean[key] = value;
-        }
-      }
-    }
-    return clean as T;
   };
 
   // Atomic Firestore Transaction helper to prevent concurrency issues & overselling
@@ -2040,6 +2023,7 @@ export const POSModule: React.FC<POSModuleProps> = ({
           isOpen={showPettyCashModal}
           onClose={() => setShowPettyCashModal(false)}
           suppliers={suppliers}
+          currentShiftId={activeCashShift?.id}
           onRegisterExpense={onRegisterPettyCashExpense}
         />
       )}

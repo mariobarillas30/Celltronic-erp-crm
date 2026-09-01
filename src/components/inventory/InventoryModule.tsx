@@ -153,7 +153,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({
         supplierName: supplierObj?.name || '',
         isPromotional: isPromo,
         isPromotionalGift: isPromo,
-        promoDescription: prodPromoDescription,
+        promoDescription: isPromo ? prodPromoDescription : '',
         updatedAt: new Date().toISOString()
       });
     } else {
@@ -171,7 +171,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({
         supplierName: supplierObj?.name || '',
         isPromotional: isPromo,
         isPromotionalGift: isPromo,
-        promoDescription: prodPromoDescription
+        promoDescription: isPromo ? prodPromoDescription : ''
       });
     }
 
@@ -612,7 +612,18 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({
                   <label className="block text-slate-400 font-semibold mb-1">Categoría</label>
                   <select
                     value={prodCategory}
-                    onChange={(e) => setProdCategory(e.target.value as ProductCategory)}
+                    onChange={(e) => {
+                      const val = e.target.value as ProductCategory;
+                      setProdCategory(val);
+                      if (val === 'Regalía' || val === 'Promocionales') {
+                        setProdIsPromotional(true);
+                        if (!prodSale || prodSale === '0') {
+                          setProdSale('0.00');
+                        }
+                      } else if (prodCategory === 'Regalía' || prodCategory === 'Promocionales') {
+                        setProdIsPromotional(false);
+                      }
+                    }}
                     className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white"
                   >
                     {categories.map(c => <option key={c} value={c}>{c}</option>)}
@@ -708,7 +719,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({
                 <label className="flex items-center gap-2.5 cursor-pointer text-purple-200 font-bold">
                   <input
                     type="checkbox"
-                    checked={prodIsPromotional || prodCategory === 'Promocionales' || prodCategory === 'Regalía'}
+                    checked={prodIsPromotional}
                     onChange={(e) => {
                       const checked = e.target.checked;
                       setProdIsPromotional(checked);
@@ -716,7 +727,14 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({
                         if (prodCategory !== 'Promocionales' && prodCategory !== 'Regalía') {
                           setProdCategory('Regalía');
                         }
-                        setProdSale('0.00');
+                        if (!prodSale || prodSale === '0') {
+                          setProdSale('0.00');
+                        }
+                      } else {
+                        // Deactivate regalia
+                        if (prodCategory === 'Regalía' || prodCategory === 'Promocionales') {
+                          setProdCategory('Accesorios');
+                        }
                       }
                     }}
                     className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-slate-700 bg-slate-800 cursor-pointer"
@@ -729,7 +747,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({
                 <p className="text-[10px] text-purple-300/80 leading-relaxed pl-6.5">
                   Al marcar esta casilla, el producto aparecerá automáticamente en el catálogo dinámico de Regalías/Cortesías del Punto de Venta (POS) para entregarse a <strong>$0.00 al cliente</strong> y descontar stock real de inventario bajo autorización del CEO.
                 </p>
-                {(prodIsPromotional || prodCategory === 'Promocionales' || prodCategory === 'Regalía') && (
+                {prodIsPromotional && (
                   <div className="pt-1.5 pl-6.5">
                     <label className="block text-[11px] font-semibold text-purple-300 mb-1">
                       Descripción u ocasión de la regalía (Opcional):

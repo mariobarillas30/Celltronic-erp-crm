@@ -251,3 +251,26 @@ export const clearTestData = async (): Promise<{ success: boolean; deletedCount:
     };
   }
 };
+
+/**
+ * Recursively removes undefined fields and cleans objects before sending to Firestore
+ */
+export const sanitizeForFirestore = <T extends Record<string, any>>(obj: T): T => {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(item => (typeof item === 'object' && item !== null ? sanitizeForFirestore(item) : item)) as unknown as T;
+  }
+  const clean: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      if (value !== null && typeof value === 'object' && !(value instanceof Date) && !(value instanceof Timestamp)) {
+        clean[key] = sanitizeForFirestore(value);
+      } else {
+        clean[key] = value;
+      }
+    }
+  }
+  return clean as T;
+};
+
+

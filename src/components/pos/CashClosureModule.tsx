@@ -34,7 +34,7 @@ interface CashClosureModuleProps {
   suppliers?: Supplier[];
   onOpenShift: (initialAmount: number) => void;
   onCloseShift: (shiftId: string, actualCountedCash: number, notes: string) => void;
-  onRegisterPettyCashExpense?: (expense: Omit<PettyCashExpense, 'id' | 'voucherNumber' | 'createdAt'>) => PettyCashExpense;
+  onRegisterPettyCashExpense?: (expense: Omit<PettyCashExpense, 'id' | 'voucherNumber' | 'createdAt'>) => Promise<PettyCashExpense> | PettyCashExpense;
 }
 
 export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
@@ -870,6 +870,7 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
           isOpen={showPettyCashModal}
           onClose={() => setShowPettyCashModal(false)}
           suppliers={suppliers}
+          currentShiftId={activeShift?.id}
           onRegisterExpense={onRegisterPettyCashExpense}
         />
       )}

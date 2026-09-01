@@ -104,21 +104,26 @@ export const RepairsModule: React.FC<RepairsModuleProps> = ({
     e.preventDefault();
     const newTicketNumber = `REP-2026-${Math.floor(100 + Math.random() * 900)}`;
 
+    const cleanCustId = selectedCustomerId?.trim();
+    const cleanSerial = serialNumber.trim();
+    const cleanDevPhoto = devicePhotoUrl.trim();
+    const cleanDocPhoto = documentPhotoUrl.trim();
+
     onAddRepair({
       ticketNumber: newTicketNumber,
-      customerId: selectedCustomerId,
-      customerName,
-      customerPhone,
-      customerDocumentId,
-      deviceBrand,
-      deviceModel,
-      serialNumber,
-      issueDescription,
+      ...(cleanCustId ? { customerId: cleanCustId } : {}),
+      customerName: customerName.trim() || 'Cliente General',
+      customerPhone: customerPhone.trim() || 'No especificado',
+      customerDocumentId: customerDocumentId.trim() || 'Sin documento',
+      deviceBrand: deviceBrand.trim() || 'Genérico',
+      deviceModel: deviceModel.trim(),
+      ...(cleanSerial ? { serialNumber: cleanSerial } : {}),
+      issueDescription: issueDescription.trim(),
       status: 'Recibido',
       estimatedCost: parseFloat(estimatedCost) || 0,
       advancePayment: parseFloat(advancePayment) || 0,
-      devicePhotoUrl,
-      documentPhotoUrl,
+      ...(cleanDevPhoto ? { devicePhotoUrl: cleanDevPhoto } : {}),
+      ...(cleanDocPhoto ? { documentPhotoUrl: cleanDocPhoto } : {}),
       technicianNotes: 'Dispositivo ingresado a recepción. Pendiente de diagnóstico.'
     });
 
