@@ -27,11 +27,8 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
 }) => {
   const { isCEO, role, currentUser } = useAuth();
 
-  // Firestore Commissions State
-  const [commissions, setCommissions] = useState<RechargeCommissionSettings>(() => {
-    const cached = localStorage.getItem('celltronic_recharge_commissions');
-    return cached ? JSON.parse(cached) : DEFAULT_RECHARGE_COMMISSIONS;
-  });
+  // Firestore Commissions State (synchronized in real-time via Firestore listener)
+  const [commissions, setCommissions] = useState<RechargeCommissionSettings>(DEFAULT_RECHARGE_COMMISSIONS);
   const [isCommissionModalOpen, setIsCommissionModalOpen] = useState(false);
 
   // Form State

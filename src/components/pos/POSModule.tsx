@@ -778,12 +778,9 @@ export const POSModule: React.FC<POSModuleProps> = ({
     // Execute atomic transaction in Firebase
     const txRes = await processAtomicSaleInFirestore(newSale);
     if (!txRes.success) {
-      if (txRes.error?.includes('¡Conflicto de Concurrencia!')) {
-        alert(`❌ Error de Stock Concurrente:\n${txRes.error}`);
-        setIsProcessingSale(false);
-        return;
-      }
-      console.warn('Firebase network sync notice (operating in local/offline mode):', txRes.error);
+      alert(`❌ Error al procesar la venta en Firestore:\n${txRes.error || 'No se pudo registrar la venta en la base de datos central.'}`);
+      setIsProcessingSale(false);
+      return;
     }
 
     onCompleteSale(newSale);
