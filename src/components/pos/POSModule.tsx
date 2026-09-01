@@ -33,7 +33,7 @@ import {
   Check,
   Gift
 } from 'lucide-react';
-import { doc, runTransaction, collection } from 'firebase/firestore';
+import { doc, runTransaction, collection, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { sanitizeForFirestore } from '../../lib/firebaseServices';
 import { Product, CartItem, Sale, PaymentMethod, Promotion, CashShift, Customer, DocumentType, CustomerType, Supplier, PettyCashExpense } from '../../types';
@@ -66,7 +66,7 @@ export const POSModule: React.FC<POSModuleProps> = ({
   activeCashShift,
   onGoToArqueo
 }) => {
-  const { role, isCEO, isGerente, isSupervisor, verifySupervisorPin, verifyCeoOrGerentePin, supervisorPinCap, currentUser } = useAuth();
+  const { role, isCEO, isGerente, isSupervisor, verifySupervisorPin, verifyCeoOrGerentePin, verifyCeoPin, supervisorPinCap, currentUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -638,7 +638,7 @@ export const POSModule: React.FC<POSModuleProps> = ({
   }, [isExceedingProfitThreshold, profitOverrideAuthorizedBy, isCEO]);
 
   // Handle Standard Supervisor PIN Verification (for standard discounts <= 50% profit)
-  const handleVerifyPin = (e: React.FormEvent) => {
+  const handleVerifyPin = async (e: React.FormEvent) => {
     e.preventDefault();
     setPinError('');
 
@@ -647,9 +647,42 @@ export const POSModule: React.FC<POSModuleProps> = ({
       return;
     }
 
-    const res = verifySupervisorPin(supervisorPin);
-    if (res.valid) {
-      const authName = res.authorizedBy || 'Supervisor';
+    const clean = supervisorPin.trim();
+    let authRes: { valid: boolean; authorizedBy?: string } = { valid: false };
+
+    // Direct Firestore validation against 'users' collection
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      usersSnap.forEach((d) => {
+        const u = d.data();
+        if (
+          (u.role === 'CEO' || u.role === 'Supervisor' || u.role === 'Gerente') &&
+          u.status !== 'inactive' &&
+          u.pin &&
+          String(u.pin).trim() === clean
+        ) {
+          authRes = { valid: true, authorizedBy: `${u.displayName || u.role} (${u.role})` };
+        }
+      });
+    } catch (err) {
+      console.warn('Firestore PIN check note:', err);
+    }
+
+    // AuthContext fallback
+    if (!authRes.valid) {
+      const supCheck = verifySupervisorPin(clean);
+      if (supCheck.valid) {
+        authRes = { valid: true, authorizedBy: supCheck.authorizedBy || 'Supervisor' };
+      } else {
+        const ceoCheck = verifyCeoPin(clean);
+        if (ceoCheck.valid) {
+          authRes = { valid: true, authorizedBy: ceoCheck.authorizedBy || 'CEO' };
+        }
+      }
+    }
+
+    if (authRes.valid) {
+      const authName = authRes.authorizedBy || 'Supervisor';
       setAuthorizedSupervisor(authName);
       if (pendingDiscount) {
         setManualDiscountMode(pendingDiscount.mode);
@@ -681,7 +714,7 @@ export const POSModule: React.FC<POSModuleProps> = ({
   };
 
   // Handle CEO / Gerente Profit Protection Override PIN Verification (for discounts > 50% profit)
-  const handleVerifyOverridePin = (e: React.FormEvent) => {
+  const handleVerifyOverridePin = async (e: React.FormEvent) => {
     e.preventDefault();
     setOverridePinError('');
 
@@ -690,9 +723,42 @@ export const POSModule: React.FC<POSModuleProps> = ({
       return;
     }
 
-    const res = verifyCeoOrGerentePin(overridePin);
-    if (res.valid) {
-      const authName = res.authorizedBy || 'CEO / Gerente';
+    const clean = overridePin.trim();
+    let authRes: { valid: boolean; authorizedBy?: string } = { valid: false };
+
+    // Direct Firestore validation against 'users' collection
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      usersSnap.forEach((d) => {
+        const u = d.data();
+        if (
+          (u.role === 'CEO' || u.role === 'Gerente') &&
+          u.status !== 'inactive' &&
+          u.pin &&
+          String(u.pin).trim() === clean
+        ) {
+          authRes = { valid: true, authorizedBy: `${u.displayName || u.role} (${u.role})` };
+        }
+      });
+    } catch (err) {
+      console.warn('Firestore Override PIN check note:', err);
+    }
+
+    // AuthContext fallback
+    if (!authRes.valid) {
+      const ceoCheck = verifyCeoPin(clean);
+      if (ceoCheck.valid) {
+        authRes = { valid: true, authorizedBy: ceoCheck.authorizedBy || 'CEO' };
+      } else {
+        const mgrCheck = verifyCeoOrGerentePin(clean);
+        if (mgrCheck.valid) {
+          authRes = { valid: true, authorizedBy: mgrCheck.authorizedBy || 'Gerente' };
+        }
+      }
+    }
+
+    if (authRes.valid) {
+      const authName = authRes.authorizedBy || 'CEO / Gerente';
       setProfitOverrideAuthorizedBy(authName);
       setAuthorizedSupervisor(authName);
       if (pendingDiscount) {
@@ -777,7 +843,7 @@ export const POSModule: React.FC<POSModuleProps> = ({
     }
   };
 
-  const handleVerifyRegaliaPin = (e: React.FormEvent) => {
+  const handleVerifyRegaliaPin = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegaliaPinError('');
 
@@ -786,9 +852,47 @@ export const POSModule: React.FC<POSModuleProps> = ({
       return;
     }
 
-    const res = verifyCeoPin(regaliaPin) || verifyCeoOrGerentePin(regaliaPin) || verifySupervisorPin(regaliaPin);
-    if (res.valid) {
-      const authName = res.authorizedBy || 'CEO';
+    const clean = regaliaPin.trim();
+    let authRes: { valid: boolean; authorizedBy?: string } = { valid: false };
+
+    // 1. Direct Firestore validation against 'users' collection
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      usersSnap.forEach((d) => {
+        const u = d.data();
+        if (
+          (u.role === 'CEO' || u.role === 'Supervisor' || u.role === 'Gerente') &&
+          u.status !== 'inactive' &&
+          u.pin &&
+          String(u.pin).trim() === clean
+        ) {
+          authRes = { valid: true, authorizedBy: `${u.displayName || u.role} (${u.role})` };
+        }
+      });
+    } catch (err) {
+      console.warn('Firestore Regalía PIN check note:', err);
+    }
+
+    // 2. AuthContext fallback
+    if (!authRes.valid) {
+      const ceoCheck = verifyCeoPin(clean);
+      if (ceoCheck.valid) {
+        authRes = { valid: true, authorizedBy: ceoCheck.authorizedBy || 'CEO' };
+      } else {
+        const mgrCheck = verifyCeoOrGerentePin(clean);
+        if (mgrCheck.valid) {
+          authRes = { valid: true, authorizedBy: mgrCheck.authorizedBy || 'Gerente' };
+        } else {
+          const supCheck = verifySupervisorPin(clean);
+          if (supCheck.valid) {
+            authRes = { valid: true, authorizedBy: supCheck.authorizedBy || 'Supervisor' };
+          }
+        }
+      }
+    }
+
+    if (authRes.valid) {
+      const authName = authRes.authorizedBy || 'CEO';
       setPromotionalAuthorizedBy(authName);
 
       if (pendingRegaliaProductId) {
@@ -921,7 +1025,7 @@ export const POSModule: React.FC<POSModuleProps> = ({
     }
 
     // Regalía check: If any gift item in cart without authorization flag
-    const hasGifts = cart.some(i => i.isPromotionalGift);
+    const hasGifts = cart.some(i => i.isPromotionalGift || i.unitPrice === 0 || i.product.category === 'Regalía');
     if (hasGifts && !promotionalAuthorizedBy && !isCEO) {
       alert('🔒 Validación Requerida: Los artículos marcados como Regalía ($0.00) requieren autorización con PIN de CEO o Supervisor.');
       setShowRegaliaPinModal(true);
@@ -941,10 +1045,19 @@ export const POSModule: React.FC<POSModuleProps> = ({
     }
 
     // Re-verify standard supervisor requirement
-    if (manualDiscountAmount > 0 && !authorizedSupervisor && !isSupervisor) {
+    if (manualDiscountAmount > 0 && !authorizedSupervisor && !isSupervisor && !isCEO) {
       alert('🔒 Transacción Rechazada: El descuento manual requiere autorización con PIN antes de finalizar el cobro.');
       setShowPaymentModal(false);
       setShowPinModal(true);
+      return;
+    }
+
+    // Re-verify regalía authorization before saving to Firestore
+    const hasGifts = cart.some(i => i.isPromotionalGift || i.unitPrice === 0 || i.product.category === 'Regalía');
+    if (hasGifts && !promotionalAuthorizedBy && !isCEO) {
+      alert('🔒 Transacción Rechazada: Los artículos de Regalía ($0.00) requieren autorización con PIN de CEO o Supervisor antes de guardar la venta.');
+      setShowPaymentModal(false);
+      setShowRegaliaPinModal(true);
       return;
     }
 
@@ -1509,14 +1622,29 @@ export const POSModule: React.FC<POSModuleProps> = ({
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => removeFromCart(item.product.id)}
-                    className="p-1 text-slate-500 hover:text-red-400 cursor-pointer"
-                    title="Eliminar del carrito"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleItemRegalia(item)}
+                      className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                        item.isPromotionalGift
+                          ? 'bg-purple-600 text-white border-purple-500 hover:bg-purple-500 shadow-xs'
+                          : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-purple-300 hover:border-purple-500/50'
+                      }`}
+                      title={item.isPromotionalGift ? 'Quitar condición de Regalía (Volver a precio de lista)' : 'Convertir en Regalía ($0.00)'}
+                    >
+                      <Gift className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => removeFromCart(item.product.id)}
+                      className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 cursor-pointer"
+                      title="Eliminar del carrito"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -1926,6 +2054,76 @@ export const POSModule: React.FC<POSModuleProps> = ({
                 >
                   <Unlock className="w-4 h-4" />
                   Autorizar Descuento
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CEO / Supervisor Regalía PIN Authorization Modal */}
+      {showRegaliaPinModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 text-slate-100 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center border border-purple-500/30 shrink-0">
+                <Gift className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Autorización de Regalía / Obsequio</h3>
+                <p className="text-xs text-purple-300 font-semibold">Salida de producto a $0.00 de inventario central</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 space-y-2 text-xs">
+              <div className="flex justify-between text-slate-300">
+                <span>Operación:</span>
+                <span className="font-bold text-purple-300">Entrega de Artículo en Regalía ($0.00)</span>
+              </div>
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                Para marcar o agregar productos en condición de <strong>Regalía</strong> con precio de venta en cero y salida de inventario, se requiere validación obligatoria con el <strong>PIN de CEO o Supervisor</strong> registrado en Firestore.
+              </p>
+            </div>
+
+            {regaliaPinError && (
+              <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{regaliaPinError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleVerifyRegaliaPin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  PIN de Autorización de CEO / Supervisor *
+                </label>
+                <input
+                  type="password"
+                  maxLength={6}
+                  value={regaliaPin}
+                  onChange={(e) => setRegaliaPin(e.target.value)}
+                  placeholder="••••"
+                  autoFocus
+                  required
+                  className="w-full text-center text-xl font-mono tracking-widest px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-hidden focus:border-purple-500"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleCloseRegaliaPinModal}
+                  className="w-1/3 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold border border-slate-700 transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={!regaliaPin.trim()}
+                  className="w-2/3 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30 transition-all cursor-pointer"
+                >
+                  <Unlock className="w-4 h-4" />
+                  Autorizar Regalía
                 </button>
               </div>
             </form>

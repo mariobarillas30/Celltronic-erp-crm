@@ -160,6 +160,8 @@ export interface Repair {
   updatedAt: string;
 }
 
+export type RechargeOperator = 'Claro' | 'Tigo' | 'Movistar' | 'Digicel' | 'Otra';
+
 export interface OperatorCommission {
   commissionPercent: number; // Porcentaje de ganancia/comisión (ej: 6.5 para 6.5%)
   active: boolean;
@@ -176,18 +178,72 @@ export interface RechargeCommissionSettings {
   updatedBy?: string;
 }
 
+export interface RechargeBalance {
+  operator: RechargeOperator;
+  availableBalanceCents: number; // Saldo disponible en centavos (ej: 10000 = $100.00)
+  totalPurchasedCents: number;   // Total comprado histórico en centavos
+  totalSoldCents: number;        // Total vendido histórico en centavos
+  minAlertThresholdCents: number;// Umbral de alerta de saldo bajo (ej: 1000 = $10.00)
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export type RechargeBalanceLogType = 'COMPRA_SALDO' | 'VENTA_RECARGA' | 'AJUSTE_SALDO';
+
+export interface RechargeBalanceLog {
+  id: string;
+  operator: RechargeOperator;
+  type: RechargeBalanceLogType;
+  amountCents: number;           // Monto del movimiento en centavos
+  previousBalanceCents: number;  // Saldo antes del movimiento
+  newBalanceCents: number;       // Saldo después del movimiento
+  userUid: string;
+  userName: string;
+  notes?: string;
+  saleId?: string;               // ID de la venta si es VENTA_RECARGA
+  createdAt: string;
+}
+
+export interface RechargeDenomination {
+  id: string;
+  amountCents: number;           // Valor en centavos (ej. 115 para $1.15, 250 para $2.50)
+  label: string;                 // ej "$1.15" o "$2.50"
+  active: boolean;               // Habilitada para venta rápida
+  operator?: RechargeOperator | 'TODOS'; // Operador específico o TODOS
+  order?: number;                // Orden de despliegue
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// Operational recharge document (safe for Cashier)
 export interface Recharge {
   id: string;
+  ticketNumber?: string;
   date: string;
   cashierUid: string;
   cashierName: string;
-  operator: 'Claro' | 'Tigo' | 'Movistar' | 'Digicel' | 'Otra';
+  operator: RechargeOperator;
   phoneNumber: string;
-  costPrice: number; // HIDDEN from Cajero/Supervisor, ONLY visible to CEO
-  salePrice: number; // Public sale price
-  profit: number; // (salePrice - costPrice)
+  amountCents?: number;          // Monto nominal en centavos
+  costPrice?: number;            // Para compatibilidad y vistas del CEO
+  salePrice: number;             // Precio venta al cliente ($)
+  profit?: number;               // Margen neto para vistas CEO
   notes?: string;
   status: 'Completada' | 'Anulada';
+  shiftId?: string;
+  createdAt: string;
+}
+
+// Sensitive Financial Record (Restricted to CEO)
+export interface RechargeFinancial {
+  id: string;
+  saleId: string;
+  operator: RechargeOperator;
+  amountCents: number;           // Monto nominal en centavos
+  realCostCents: number;         // Costo real en centavos calculado con la comisión vigente
+  commissionPercent: number;     // Comisión fijada al momento de la venta
+  profitCents: number;           // Margen neto en centavos
+  cashierUid?: string;
   createdAt: string;
 }
 

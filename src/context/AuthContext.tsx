@@ -296,11 +296,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (savedCurrentUser) {
               try {
                 const parsed = JSON.parse(savedCurrentUser);
-                if (isEmailCeo(parsed.email) || isEmailCeo(fbUser.email)) {
-                  setCurrentUser(resolveCeoProfile(fbUser.email || parsed.email, fbUser.displayName, fbUser.uid));
-                } else {
-                  setCurrentUser(parsed);
-                }
+                // Maintain the active operational role selected by the user
+                setCurrentUser(parsed);
               } catch (e) {
                 if (isEmailCeo(fbUser.email)) {
                   const ceo = resolveCeoProfile(fbUser.email, fbUser.displayName, fbUser.uid);
@@ -308,7 +305,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 }
               }
             } else if (isEmailCeo(fbUser.email)) {
-              // Direct CEO access on initial login / session restore
+              // Direct CEO access on initial login / session restore if no operational role selected yet
               const ceo = resolveCeoProfile(fbUser.email, fbUser.displayName, fbUser.uid);
               setCurrentUser(ceo);
             }
@@ -335,16 +332,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const isGatekeeperAuthenticated = Boolean(gatekeeperUser);
 
+  // Operational User Authorization (Layer 2)
+  // Strictly derived from currentUser. Under no condition does Gatekeeper email override a Cajero operational role.
   const role: UserRole = currentUser?.role || 'Cajero';
-  const isCEO = role === 'CEO' || 
-    currentUser?.email?.toLowerCase() === 'eguevarha@gmail.com' || 
-    currentUser?.email?.toLowerCase() === 'mariobarillas24@gmail.com' || 
-    isEmailCeo(currentUser?.email) || 
-    isEmailCeo(gatekeeperUser?.email);
-  const isGerente = role === 'Gerente' || isCEO;
-  const isSupervisor = role === 'Supervisor' || isGerente;
-  const isCajero = role === 'Cajero';
-  const isTecnico = role === 'Técnico';
+  const isCEO = Boolean(currentUser && (currentUser.role === 'CEO' || isEmailCeo(currentUser.email)));
+  const isGerente = Boolean(currentUser && (currentUser.role === 'Gerente' || isCEO));
+  const isSupervisor = Boolean(currentUser && (currentUser.role === 'Supervisor' || isGerente));
+  const isCajero = Boolean(currentUser ? currentUser.role === 'Cajero' : true);
+  const isTecnico = Boolean(currentUser && currentUser.role === 'Técnico');
 
   // Toggle system emergency pause / kill switch
   const toggleSystemPause = (secretOrPin: string): { success: boolean; error?: string } => {

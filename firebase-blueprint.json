@@ -143,6 +143,70 @@
         "updatedBy": { "type": "string" }
       },
       "required": ["claro", "tigo", "movistar", "digicel"]
+    },
+    "RechargeBalance": {
+      "title": "RechargeBalance",
+      "description": "Real-time carrier balance inventory stored in whole integer cents",
+      "type": "object",
+      "properties": {
+        "operator": { "type": "string" },
+        "availableBalanceCents": { "type": "number" },
+        "totalPurchasedCents": { "type": "number" },
+        "totalSoldCents": { "type": "number" },
+        "minAlertThresholdCents": { "type": "number" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["operator", "availableBalanceCents", "totalPurchasedCents", "totalSoldCents"]
+    },
+    "RechargeFinancial": {
+      "title": "RechargeFinancial",
+      "description": "Confidential financial margins and real cost data per recharge (CEO-only access)",
+      "type": "object",
+      "properties": {
+        "saleId": { "type": "string" },
+        "operator": { "type": "string" },
+        "amountCents": { "type": "number" },
+        "realCostCents": { "type": "number" },
+        "commissionPercent": { "type": "number" },
+        "profitCents": { "type": "number" },
+        "cashierUid": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["saleId", "operator", "amountCents", "realCostCents", "commissionPercent", "profitCents"]
+    },
+    "RechargeBalanceLog": {
+      "title": "RechargeBalanceLog",
+      "description": "Immutable balance inventory movement log for CEO audit and cashier shift verification",
+      "type": "object",
+      "properties": {
+        "operator": { "type": "string" },
+        "type": { "type": "string", "enum": ["COMPRA_SALDO", "VENTA_RECARGA", "AJUSTE_SALDO"] },
+        "amountCents": { "type": "number" },
+        "previousBalanceCents": { "type": "number" },
+        "newBalanceCents": { "type": "number" },
+        "userUid": { "type": "string" },
+        "userName": { "type": "string" },
+        "notes": { "type": "string" },
+        "saleId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["operator", "type", "amountCents", "previousBalanceCents", "newBalanceCents", "userUid"]
+    },
+    "RechargeDenomination": {
+      "title": "RechargeDenomination",
+      "description": "Authorized fast-sale denominations configured by the CEO supporting up to 2 decimals",
+      "type": "object",
+      "properties": {
+        "amountCents": { "type": "number" },
+        "label": { "type": "string" },
+        "active": { "type": "boolean" },
+        "operator": { "type": "string" },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["amountCents", "label", "active"]
     }
   },
   "firestore": {
@@ -169,6 +233,22 @@
     "/recharges/{rechargeId}": {
       "schema": { "$ref": "#/entities/Recharge" },
       "description": "Dual balance mobile recharges"
+    },
+    "/recharge_balances/{operator}": {
+      "schema": { "$ref": "#/entities/RechargeBalance" },
+      "description": "Independent real-time carrier inventory balance in integer cents"
+    },
+    "/recharge_financials/{saleId}": {
+      "schema": { "$ref": "#/entities/RechargeFinancial" },
+      "description": "Confidential financial margins and real cost records (Restricted to CEO)"
+    },
+    "/recharge_balance_logs/{logId}": {
+      "schema": { "$ref": "#/entities/RechargeBalanceLog" },
+      "description": "Audit logs for balance top-ups and deductions"
+    },
+    "/recharge_denominations/{denominationId}": {
+      "schema": { "$ref": "#/entities/RechargeDenomination" },
+      "description": "Configurable recharge denominations authorized by the CEO"
     },
     "/settings/{settingId}": {
       "schema": { "$ref": "#/entities/RechargeCommissionSettings" },

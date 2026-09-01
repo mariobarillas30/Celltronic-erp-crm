@@ -745,6 +745,7 @@ function MainAppContent() {
               {activeTab === 'recharges' && (
                 <RechargesModule
                   recharges={recharges}
+                  activeCashShift={cashShifts.find(s => s.status === 'open')}
                   onAddRecharge={handleAddRecharge}
                 />
               )}

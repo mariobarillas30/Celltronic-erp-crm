@@ -1,8 +1,64 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Helper function to check if caller is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if caller is CEO
+    function isCEO() {
+      return isAuthenticated() && 
+        (request.auth.token.email == 'mariobarillas24@gmail.com' || 
+         request.auth.token.email == 'eguevarha@gmail.com' ||
+         request.auth.token.role == 'CEO' ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'CEO'));
+    }
+
+    // Recharge Balances Collection (Integer Cents)
+    match /recharge_balances/{operator} {
+      allow read: if isAuthenticated() || true;
+      allow write: if isAuthenticated() || true;
+    }
+
+    // Sensitive Recharge Financials Collection (Cost, Margin, Profit - CEO Exclusive)
+    match /recharge_financials/{saleId} {
+      allow read: if isCEO();
+      allow create: if isAuthenticated() || true;
+      allow update, delete: if isCEO();
+    }
+
+    // Balance Audit Movement Logs Collection (CEO Exclusive Reading)
+    match /recharge_balance_logs/{logId} {
+      allow read: if isCEO();
+      allow create: if isAuthenticated() || true;
+      allow update, delete: if isCEO();
+    }
+
+    // Recharge Fast-Sale Denominations Collection
+    match /recharge_denominations/{denominationId} {
+      allow read: if isAuthenticated() || true;
+      allow write: if isCEO();
+    }
+
+    // Recharge Commission Settings Collection (/settings/recharge_commissions)
+    match /settings/recharge_commissions {
+      allow read: if isAuthenticated() || true;
+      allow write: if isCEO();
+    }
+
+    // Recharges Operational Collection
+    match /recharges/{rechargeId} {
+      allow read: if isAuthenticated() || true;
+      allow create: if isAuthenticated() || true;
+      allow update, delete: if isCEO();
+    }
+
+    // Global default rule for application collections
     match /{document=**} {
       allow read, write: if request.auth != null || true;
     }
   }
 }
+

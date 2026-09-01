@@ -75,7 +75,7 @@ export const KPIsDashboard: React.FC<KPIsDashboardProps> = ({
 
   // Recharges profit
   const rechargesProfit = useMemo(() => {
-    return recharges.reduce((sum, r) => sum + r.profit, 0);
+    return recharges.reduce((sum, r) => sum + (r.profit || 0), 0);
   }, [recharges]);
 
   // Net Real Profit Calculation
