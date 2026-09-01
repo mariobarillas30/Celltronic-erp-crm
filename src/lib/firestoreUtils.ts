@@ -131,7 +131,7 @@ export async function fetchOrCreateUserProfile(fbUser: {
     const userDocRef = doc(db, 'users', fbUser.uid);
     const snap = await getDoc(userDocRef);
 
-    const isMasterEmail = fbUser.email?.toLowerCase() === 'mariobarillas24@gmail.com';
+    const isMasterEmail = fbUser.email?.toLowerCase() === 'mariobarillas24@gmail.com' || fbUser.email?.toLowerCase() === 'eguevarha@gmail.com';
 
     if (snap.exists()) {
       const data = snap.data() as Partial<AppUser>;
@@ -141,7 +141,7 @@ export async function fetchOrCreateUserProfile(fbUser: {
         email: fbUser.email || data.email || 'usuario@celltronic.com',
         displayName: data.displayName || fbUser.displayName || 'Usuario Celltronic',
         role: userRole,
-        pin: data.pin || (userRole === 'CEO' ? '9999' : userRole === 'Supervisor' ? '1234' : '0000'),
+        pin: data.pin !== undefined ? String(data.pin).trim() : '',
         status: data.status || 'active',
         allowedModules: data.allowedModules || DEFAULT_ROLE_MODULES[userRole],
         createdAt: data.createdAt || new Date().toISOString()
@@ -154,7 +154,7 @@ export async function fetchOrCreateUserProfile(fbUser: {
         email: fbUser.email || 'usuario@celltronic.com',
         displayName: fbUser.displayName || (isMasterEmail ? 'Mario Barillas (CEO & Super Admin)' : 'Nuevo Colaborador'),
         role: userRole,
-        pin: isMasterEmail ? '2408' : '0000',
+        pin: '',
         status: 'active',
         allowedModules: DEFAULT_ROLE_MODULES[userRole],
         createdAt: new Date().toISOString()
@@ -169,14 +169,14 @@ export async function fetchOrCreateUserProfile(fbUser: {
       return newUser;
     }
   } catch (error) {
-    console.warn('Error fetching Firestore user profile, using fallback profile:', error);
-    const isMaster = fbUser.email?.toLowerCase() === 'mariobarillas24@gmail.com';
+    console.warn('Error fetching Firestore user profile:', error);
+    const isMaster = fbUser.email?.toLowerCase() === 'mariobarillas24@gmail.com' || fbUser.email?.toLowerCase() === 'eguevarha@gmail.com';
     return {
       uid: fbUser.uid,
       email: fbUser.email || 'usuario@celltronic.com',
       displayName: fbUser.displayName || (isMaster ? 'Mario Barillas (CEO)' : 'Usuario Celltronic'),
       role: isMaster ? 'CEO' : 'Cajero',
-      pin: isMaster ? '2408' : '0000',
+      pin: '',
       status: 'active',
       allowedModules: DEFAULT_ROLE_MODULES[isMaster ? 'CEO' : 'Cajero'],
       createdAt: new Date().toISOString()
@@ -192,7 +192,6 @@ export const RECHARGE_SETTINGS_DOC_PATH = 'settings/recharge_commissions';
 
 /**
  * Real-time subscription to recharge commission settings from Firestore.
- * Fallbacks cleanly to local storage or defaults if offline.
  */
 export function subscribeToRechargeCommissions(
   onUpdate: (settings: RechargeCommissionSettings) => void
@@ -234,7 +233,6 @@ export function subscribeToRechargeCommissions(
             updatedBy: data.updatedBy || 'CEO'
           };
           
-          localStorage.setItem('celltronic_recharge_commissions', JSON.stringify(merged));
           onUpdate(merged);
         } else {
           // If document does not exist yet in Firestore, seed it with defaults
@@ -245,17 +243,8 @@ export function subscribeToRechargeCommissions(
         }
       },
       (error) => {
-        console.warn('Error in real-time listener for recharge commissions, using cached/default values:', error);
-        const cached = localStorage.getItem('celltronic_recharge_commissions');
-        if (cached) {
-          try {
-            onUpdate(JSON.parse(cached));
-          } catch {
-            onUpdate(DEFAULT_RECHARGE_COMMISSIONS);
-          }
-        } else {
-          onUpdate(DEFAULT_RECHARGE_COMMISSIONS);
-        }
+        console.warn('Error in real-time listener for recharge commissions:', error);
+        onUpdate(DEFAULT_RECHARGE_COMMISSIONS);
       }
     );
 
@@ -283,15 +272,12 @@ export async function saveRechargeCommissionsToFirestore(
     };
 
     await setDoc(docRef, payload, { merge: true });
-    localStorage.setItem('celltronic_recharge_commissions', JSON.stringify(payload));
     return { success: true };
   } catch (error: any) {
     console.error('Error saving recharge commissions to Firestore:', error);
-    // Keep local cache updated for immediate UI feedback
-    localStorage.setItem('celltronic_recharge_commissions', JSON.stringify(settings));
     return { 
-      success: true, // Still marked handled locally
-      error: error?.message || 'Aviso: Guardado localmente, pendiente de sincronización con Firestore.' 
+      success: false, 
+      error: error?.message || 'Error al guardar comisiones en Firestore.' 
     };
   }
 }

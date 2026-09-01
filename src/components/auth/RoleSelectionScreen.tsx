@@ -81,6 +81,7 @@ export const RoleSelectionScreen: React.FC = () => {
     gatekeeperUser, 
     logoutGatekeeper, 
     selectRoleWithPin, 
+    loginAsCeoDirectly,
     usersList 
   } = useAuth();
 
@@ -320,7 +321,7 @@ export const RoleSelectionScreen: React.FC = () => {
                     </p>
                     <button
                       type="button"
-                      onClick={() => selectRoleWithPin('CEO', '9999', gatekeeperUser?.email || undefined)}
+                      onClick={() => loginAsCeoDirectly()}
                       className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
                     >
                       <Crown className="w-4 h-4" />

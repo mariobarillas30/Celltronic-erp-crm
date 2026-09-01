@@ -67,6 +67,7 @@ interface AuthContextType {
   
   // Operational Role Activation & Switching
   selectRoleWithPin: (targetRole: UserRole, pin: string, specificEmail?: string) => Promise<{ success: boolean; error?: string }>;
+  loginAsCeoDirectly: () => { success: boolean; error?: string };
   switchRoleWithPin: (targetRole: UserRole, pin: string) => Promise<{ success: boolean; error?: string }>;
   quickSwitchRole: (targetRole: UserRole) => void;
   loginWithDemoAccount: (role: UserRole) => void;
@@ -109,10 +110,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(true);
   
-  const [usersList, setUsersList] = useState<AppUser[]>(() => {
-    const saved = localStorage.getItem('celltronic_users');
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
-  });
+  const [usersList, setUsersList] = useState<AppUser[]>([]);
 
   // Layer 1: Gatekeeper State (Google / Firebase Auth session)
   const [gatekeeperUser, setGatekeeperUser] = useState<GatekeeperUser | null>(() => {
@@ -134,10 +132,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [supervisorPinCap] = useState<number>(10);
-
-  useEffect(() => {
-    localStorage.setItem('celltronic_users', JSON.stringify(usersList));
-  }, [usersList]);
 
   useEffect(() => {
     localStorage.setItem('celltronic_system_paused', String(isSystemPaused));
@@ -173,38 +167,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubscribeFirestore = onSnapshot(
         usersColRef,
         (snapshot) => {
-          if (!snapshot.empty) {
-            const firestoreUsers: AppUser[] = [];
-            snapshot.forEach((docSnap) => {
-              const data = docSnap.data();
-              firestoreUsers.push({
-                uid: docSnap.id,
-                email: data.email || '',
-                displayName: data.displayName || '',
-                role: data.role || 'Cajero',
-                pin: data.pin !== undefined ? String(data.pin).trim() : '',
-                status: data.status || 'active',
-                allowedModules: data.allowedModules || DEFAULT_ROLE_MODULES[data.role as UserRole] || [],
-                createdAt: data.createdAt || new Date().toISOString()
-              });
+          const firestoreUsers: AppUser[] = [];
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data();
+            firestoreUsers.push({
+              uid: docSnap.id,
+              email: data.email || '',
+              displayName: data.displayName || '',
+              role: data.role || 'Cajero',
+              pin: data.pin !== undefined ? String(data.pin).trim() : '',
+              status: data.status || 'active',
+              allowedModules: data.allowedModules || DEFAULT_ROLE_MODULES[data.role as UserRole] || [],
+              createdAt: data.createdAt || new Date().toISOString()
             });
+          });
 
-            // STRICT OVERWRITE: Firestore is the single source of truth.
-            setUsersList(firestoreUsers);
+          // STRICT OVERWRITE: Firestore is the single source of truth.
+          setUsersList(firestoreUsers);
 
-            // If current user is logged in, sync their PIN and permissions in real time
-            setCurrentUser((prevCur) => {
-              if (!prevCur) return null;
-              const matchingInDb = firestoreUsers.find((fu) => fu.uid === prevCur.uid || (fu.email && fu.email.toLowerCase() === prevCur.email?.toLowerCase()));
-              if (matchingInDb) {
-                return { ...prevCur, ...matchingInDb, pin: String(matchingInDb.pin).trim() };
-              }
-              return prevCur;
-            });
-          }
+          // If current user is logged in, sync their PIN and permissions in real time
+          setCurrentUser((prevCur) => {
+            if (!prevCur) return null;
+            const matchingInDb = firestoreUsers.find((fu) => fu.uid === prevCur.uid || (fu.email && fu.email.toLowerCase() === prevCur.email?.toLowerCase()));
+            if (matchingInDb) {
+              return { ...prevCur, ...matchingInDb, pin: String(matchingInDb.pin).trim() };
+            }
+            return prevCur;
+          });
         },
         (error) => {
-          console.warn('Real-time Firestore user sync notice (using local cache):', error);
+          console.warn('Real-time Firestore user sync notice:', error);
         }
       );
     } catch (err) {
@@ -243,7 +235,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       email: cleanEmail,
       displayName: displayName || (cleanEmail === 'eguevarha@gmail.com' ? 'E. Guevara (CEO / Propietario)' : 'Mario Barillas (CEO / Super Admin)'),
       role: 'CEO',
-      pin: '9999',
+      pin: '',
       status: 'active',
       allowedModules: ALL_CEO_MODULES,
       createdAt: new Date().toISOString()
@@ -357,14 +349,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Toggle system emergency pause / kill switch
   const toggleSystemPause = (secretOrPin: string): { success: boolean; error?: string } => {
     const clean = secretOrPin.trim();
-    // Validate against current CEO / Admin users in dynamic usersList or master key
-    const validCeo = usersList.find(u => (u.role === 'CEO' || u.email.toLowerCase() === 'mariobarillas24@gmail.com') && u.pin === clean);
-    if (validCeo || clean === '2408' || clean === 'mariobarillas24@gmail.com') {
+    // Validate exclusively against active CEO user's PIN in usersList
+    const validCeo = usersList.find(
+      u => u.role === 'CEO' && u.status !== 'inactive' && u.pin && String(u.pin).trim() === clean
+    );
+    if (validCeo) {
       const newState = !isSystemPaused;
       setIsSystemPaused(newState);
       return { success: true };
     }
-    return { success: false, error: 'PIN o Clave de Proveedor Super Admin incorrecta (requiere autorización de CEO)' };
+    return { success: false, error: 'PIN incorrecto (requiere autorización con PIN de CEO registrado en Firestore)' };
   };
 
   // Layer 1: Google Login (Gatekeeper protection)
@@ -525,64 +519,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const cleanPin = pin.trim();
     const cleanEmail = specificEmail?.trim().toLowerCase();
 
-    // 0. Special CEO Master Authorization: 9999 or 2408 always grants access to CEO
-    if (targetRole === 'CEO' && (cleanPin === '9999' || cleanPin === '2408')) {
-      let ceoUser = usersList.find(
-        u => u.role === 'CEO' && (
-          !cleanEmail || 
-          u.email.toLowerCase() === cleanEmail || 
-          u.email.toLowerCase() === 'mariobarillas24@gmail.com' ||
-          u.email.toLowerCase() === 'ceo@celltronic.com'
-        )
-      );
-
-      if (!ceoUser) {
-        ceoUser = usersList.find(u => u.role === 'CEO' && u.status !== 'inactive');
-      }
-
-      if (!ceoUser) {
-        ceoUser = INITIAL_USERS.find(u => u.role === 'CEO' && u.email.toLowerCase() === 'mariobarillas24@gmail.com') ||
-                  INITIAL_USERS.find(u => u.role === 'CEO');
-      }
-
-      if (!ceoUser) {
-        ceoUser = {
-          uid: gatekeeperUser?.uid || 'user-ceo-master',
-          email: gatekeeperUser?.email || 'mariobarillas24@gmail.com',
-          displayName: gatekeeperUser?.displayName || 'Mario Barillas (CEO / Super Admin)',
-          role: 'CEO',
-          pin: '9999',
-          status: 'active',
-          allowedModules: DEFAULT_ROLE_MODULES['CEO'],
-          createdAt: new Date().toISOString()
-        };
-      }
-
-      if (ceoUser.status === 'inactive') {
-        return { success: false, error: 'El perfil de este rol se encuentra inactivo.' };
-      }
-
-      setCurrentUser(ceoUser);
-      localStorage.removeItem('celltronic_role_logged_out');
-      return { success: true };
-    }
-
     // 1. If a specific email is provided, check matching user dynamically
     if (cleanEmail) {
       let foundUser = usersList.find(
-        u => u.email.toLowerCase() === cleanEmail && (
-          String(u.pin).trim() === cleanPin ||
-          (u.role === 'CEO' && (cleanPin === '9999' || cleanPin === '2408'))
-        )
+        u => u.email.toLowerCase() === cleanEmail && u.pin && String(u.pin).trim() === cleanPin
       );
 
       // If not immediately found in memory, query Firestore directly for latest PIN
       if (!foundUser) {
         const directUser = await getDirectFirestoreUser(cleanEmail);
-        if (directUser && (
-          String(directUser.pin).trim() === cleanPin ||
-          (directUser.role === 'CEO' && (cleanPin === '9999' || cleanPin === '2408'))
-        )) {
+        if (directUser && directUser.pin && String(directUser.pin).trim() === cleanPin) {
           foundUser = directUser;
         }
       }
@@ -597,36 +543,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // 2. Check if matching any active user with that role and PIN in usersList (including standard role PINs)
-    let matchingUser = usersList.find(
-      u => u.role === targetRole && (
-        String(u.pin).trim() === cleanPin ||
-        (targetRole === 'CEO' && (cleanPin === '9999' || cleanPin === '2408')) ||
-        (targetRole === 'Supervisor' && (cleanPin === '1234' || cleanPin === '9999' || cleanPin === '2408')) ||
-        (targetRole === 'Gerente' && (cleanPin === '5555' || cleanPin === '9999' || cleanPin === '2408')) ||
-        (targetRole === 'Cajero' && (cleanPin === '0000' || cleanPin === '9999' || cleanPin === '2408')) ||
-        (targetRole === 'Técnico' && (cleanPin === '7777' || cleanPin === '9999' || cleanPin === '2408'))
-      )
+    // 2. Check if matching any active user with that role and PIN in usersList
+    const matchingUser = usersList.find(
+      u => u.role === targetRole && u.status !== 'inactive' && u.pin && String(u.pin).trim() === cleanPin
     );
 
-    // 3. Fallback to INITIAL_USERS if usersList was empty or partially loaded
-    if (!matchingUser) {
-      matchingUser = INITIAL_USERS.find(
-        u => u.role === targetRole && (
-          String(u.pin).trim() === cleanPin ||
-          (targetRole === 'CEO' && (cleanPin === '9999' || cleanPin === '2408')) ||
-          (targetRole === 'Supervisor' && (cleanPin === '1234' || cleanPin === '9999' || cleanPin === '2408')) ||
-          (targetRole === 'Gerente' && (cleanPin === '5555' || cleanPin === '9999' || cleanPin === '2408')) ||
-          (targetRole === 'Cajero' && (cleanPin === '0000' || cleanPin === '9999' || cleanPin === '2408')) ||
-          (targetRole === 'Técnico' && (cleanPin === '7777' || cleanPin === '9999' || cleanPin === '2408'))
-        )
-      );
-    }
-
     if (matchingUser) {
-      if (matchingUser.status === 'inactive') {
-        return { success: false, error: 'El perfil de este rol se encuentra inactivo.' };
-      }
       setCurrentUser(matchingUser);
       localStorage.removeItem('celltronic_role_logged_out');
       return { success: true };
@@ -634,8 +556,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return { 
       success: false, 
-      error: `PIN de seguridad incorrecto para el rol de ${targetRole}. Ingrese el PIN de acceso asignado.` 
+      error: `PIN de seguridad incorrecto para el rol de ${targetRole}. Ingrese el PIN de acceso asignado en Firestore.` 
     };
+  };
+
+  // Direct CEO Login for Google Gatekeeper Authenticated Session
+  const loginAsCeoDirectly = (): { success: boolean; error?: string } => {
+    if (!gatekeeperUser || !isEmailCeo(gatekeeperUser.email)) {
+      return { success: false, error: 'No autorizado como CEO en Gatekeeper.' };
+    }
+    const cleanEmail = gatekeeperUser.email!.toLowerCase();
+    const ceoProfile = resolveCeoProfile(cleanEmail, gatekeeperUser.displayName, gatekeeperUser.uid);
+    setCurrentUser(ceoProfile);
+    localStorage.removeItem('celltronic_role_logged_out');
+    return { success: true };
   };
 
   // Dynamic Role Switcher with PIN Validation inside ERP
@@ -645,43 +579,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     const cleanPin = pin.trim();
 
-    // Check CEO master PINs
-    if (targetRole === 'CEO' && (cleanPin === '9999' || cleanPin === '2408')) {
-      const ceoUser = usersList.find(u => u.role === 'CEO' && u.status !== 'inactive') || 
-                      INITIAL_USERS.find(u => u.role === 'CEO');
-      if (ceoUser) {
-        setCurrentUser(ceoUser);
-        localStorage.removeItem('celltronic_role_logged_out');
-        return { success: true };
-      }
-    }
-
-    // Check specific user in usersList with matching role and matching updated PIN
-    let matchingUser = usersList.find(
-      u => u.role === targetRole && (
-        String(u.pin).trim() === cleanPin ||
-        (targetRole === 'CEO' && (cleanPin === '9999' || cleanPin === '2408')) ||
-        (targetRole === 'Supervisor' && (cleanPin === '1234' || cleanPin === '9999' || cleanPin === '2408')) ||
-        (targetRole === 'Gerente' && (cleanPin === '5555' || cleanPin === '9999' || cleanPin === '2408')) ||
-        (targetRole === 'Cajero' && (cleanPin === '0000' || cleanPin === '9999' || cleanPin === '2408')) ||
-        (targetRole === 'Técnico' && (cleanPin === '7777' || cleanPin === '9999' || cleanPin === '2408'))
-      )
+    // Check specific active user in usersList with matching role and matching updated PIN
+    const matchingUser = usersList.find(
+      u => u.role === targetRole && u.status !== 'inactive' && u.pin && String(u.pin).trim() === cleanPin
     );
 
-    if (!matchingUser) {
-      matchingUser = INITIAL_USERS.find(
-        u => u.role === targetRole && (
-          String(u.pin).trim() === cleanPin ||
-          (targetRole === 'CEO' && (cleanPin === '9999' || cleanPin === '2408')) ||
-          (targetRole === 'Supervisor' && (cleanPin === '1234' || cleanPin === '9999' || cleanPin === '2408'))
-        )
-      ) || null;
-    }
-
     if (matchingUser) {
-      if (matchingUser.status === 'inactive') {
-        return { success: false, error: `El usuario con rol ${targetRole} se encuentra inactivo.` };
-      }
       setCurrentUser(matchingUser);
       localStorage.removeItem('celltronic_role_logged_out');
       return { success: true };
@@ -689,7 +592,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return { 
       success: false, 
-      error: `PIN incorrecto para autorizar el cambio al rol de ${targetRole}. Ingrese el PIN actualizado del usuario.` 
+      error: `PIN incorrecto para autorizar el cambio al rol de ${targetRole}. Ingrese el PIN registrado en Firestore.` 
     };
   };
 
@@ -781,7 +684,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: cleanEmail,
         displayName,
         role: assignedRole,
-        pin: pin || '0000',
+        pin: pin ? pin.trim() : '',
         status: 'active',
         allowedModules: defaultMods,
         createdAt: new Date().toISOString()
@@ -806,20 +709,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Pure dynamic validation: check against usersList synced from Firestore
+  // Pure dynamic validation: check exclusively against usersList synced from Firestore
   const verifySupervisorPin = (pin: string): { valid: boolean; authorizedBy?: string } => {
     if (!pin) return { valid: false };
     const clean = pin.trim();
-    if (clean === '9999' || clean === '2408') {
-      const ceo = usersList.find(u => u.role === 'CEO') || INITIAL_USERS.find(u => u.role === 'CEO');
-      return { valid: true, authorizedBy: `${ceo?.displayName || 'Mario Barillas'} (CEO)` };
-    }
-    if (clean === '1234') {
-      const sup = usersList.find(u => u.role === 'Supervisor') || INITIAL_USERS.find(u => u.role === 'Supervisor');
-      return { valid: true, authorizedBy: `${sup?.displayName || 'Supervisor'} (Supervisor)` };
-    }
     const supervisor = usersList.find(
-      u => (u.role === 'CEO' || u.role === 'Gerente' || u.role === 'Supervisor') && u.status !== 'inactive' && String(u.pin).trim() === clean
+      u => (u.role === 'CEO' || u.role === 'Gerente' || u.role === 'Supervisor') && 
+           u.status !== 'inactive' && 
+           u.pin && 
+           String(u.pin).trim() === clean
     );
 
     if (supervisor) {
@@ -831,16 +729,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const verifyCeoOrGerentePin = (pin: string): { valid: boolean; authorizedBy?: string; role?: UserRole } => {
     if (!pin) return { valid: false };
     const clean = pin.trim();
-    if (clean === '9999' || clean === '2408') {
-      const ceo = usersList.find(u => u.role === 'CEO') || INITIAL_USERS.find(u => u.role === 'CEO');
-      return { valid: true, authorizedBy: `${ceo?.displayName || 'Mario Barillas'} (CEO)`, role: 'CEO' };
-    }
-    if (clean === '5555') {
-      const ger = usersList.find(u => u.role === 'Gerente') || INITIAL_USERS.find(u => u.role === 'Gerente');
-      return { valid: true, authorizedBy: `${ger?.displayName || 'Gerente'} (Gerente)`, role: 'Gerente' };
-    }
     const manager = usersList.find(
-      u => (u.role === 'CEO' || u.role === 'Gerente') && u.status !== 'inactive' && String(u.pin).trim() === clean
+      u => (u.role === 'CEO' || u.role === 'Gerente') && 
+           u.status !== 'inactive' && 
+           u.pin && 
+           String(u.pin).trim() === clean
     );
 
     if (manager) {
@@ -852,12 +745,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const verifyCeoPin = (pin: string): { valid: boolean; authorizedBy?: string } => {
     if (!pin) return { valid: false };
     const clean = pin.trim();
-    if (clean === '9999' || clean === '2408') {
-      const ceo = usersList.find(u => u.role === 'CEO') || INITIAL_USERS.find(u => u.role === 'CEO');
-      return { valid: true, authorizedBy: `${ceo?.displayName || 'Mario Barillas'} (CEO)` };
-    }
     const ceoUser = usersList.find(
-      u => u.role === 'CEO' && u.status !== 'inactive' && String(u.pin).trim() === clean
+      u => u.role === 'CEO' && 
+           u.status !== 'inactive' && 
+           u.pin && 
+           String(u.pin).trim() === clean
     );
 
     if (ceoUser) {
@@ -874,7 +766,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const newUid = `user-${Date.now()}`;
     const created: AppUser = {
       ...newUser,
-      pin: String(newUser.pin || '0000'),
+      pin: newUser.pin !== undefined ? String(newUser.pin).trim() : '',
       allowedModules: defaultMods,
       uid: newUid,
       createdAt: new Date().toISOString()
@@ -1005,6 +897,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isSystemPaused,
         toggleSystemPause,
         selectRoleWithPin,
+        loginAsCeoDirectly,
         switchRoleWithPin,
         quickSwitchRole,
         loginWithDemoAccount,
