@@ -36,6 +36,13 @@ service cloud.firestore {
       allow update, delete: if isCEO();
     }
 
+    // Recharge Balance Adjustments Collection (CEO Exclusive, Immutable)
+    match /recharge_balance_adjustments/{adjustmentId} {
+      allow read: if isCEO();
+      allow create: if isCEO();
+      allow update, delete: if false;
+    }
+
     // Recharge Fast-Sale Denominations Collection
     match /recharge_denominations/{denominationId} {
       allow read: if isAuthenticated() || true;

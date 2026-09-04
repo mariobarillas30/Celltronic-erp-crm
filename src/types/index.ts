@@ -204,6 +204,22 @@ export interface RechargeBalanceLog {
   createdAt: string;
 }
 
+export type RechargeAdjustmentType = 'AUMENTO' | 'DISMINUCION';
+
+// Dedicated Administrative Balance Adjustment (CEO Exclusive)
+export interface RechargeBalanceAdjustment {
+  id: string;
+  operator: RechargeOperator;
+  type: RechargeAdjustmentType;
+  amountCents: number;           // Monto del ajuste en centavos (ej. 500 = $5.00)
+  previousBalanceCents: number;  // Saldo antes del ajuste
+  newBalanceCents: number;       // Saldo resultante
+  reason: string;                // Motivo obligatorio
+  createdAt: string;
+  createdBy: string;             // UID del CEO
+  createdByName: string;         // Nombre del CEO
+}
+
 export interface RechargeDenomination {
   id: string;
   amountCents: number;           // Valor en centavos (ej. 115 para $1.15, 250 para $2.50)

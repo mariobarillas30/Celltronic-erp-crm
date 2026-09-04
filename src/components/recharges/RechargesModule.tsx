@@ -23,12 +23,14 @@ import {
   FileSpreadsheet,
   Save,
   Info,
-  CheckCircle
+  CheckCircle,
+  Sliders
 } from 'lucide-react';
 import { 
   Recharge, 
   RechargeBalance, 
   RechargeBalanceLog, 
+  RechargeBalanceAdjustment,
   RechargeDenomination, 
   RechargeFinancial, 
   RechargeCommissionSettings, 
@@ -52,11 +54,13 @@ import {
   formatCents,
   subscribeToRechargeBalances,
   subscribeToRechargeBalanceLogs,
+  subscribeToRechargeAdjustments,
   subscribeToRechargeDenominations,
   subscribeToRechargeFinancials
 } from '../../lib/rechargeServices';
 import { RechargeCommissionModal } from './RechargeCommissionModal';
 import { AddBalanceModal } from './AddBalanceModal';
+import { AdjustBalanceModal } from './AdjustBalanceModal';
 import { ManageDenominationsModal } from './ManageDenominationsModal';
 import { RechargeTicketModal } from './RechargeTicketModal';
 
@@ -73,8 +77,8 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
 }) => {
   const { currentUser, isCEO, role } = useAuth();
 
-  // Active view tab for CEO (Terminal de Venta, Cuadre/Inventario, % de Ganancia, Auditoría de Saldo, Historial Financiero)
-  const [ceoActiveView, setCeoActiveView] = useState<'terminal' | 'balances' | 'commissions' | 'logs' | 'history'>('terminal');
+  // Active view tab for CEO (Terminal de Venta, Cuadre/Inventario, % de Ganancia, Auditoría de Saldo, Historial Financiero, Historial de Ajustes)
+  const [ceoActiveView, setCeoActiveView] = useState<'terminal' | 'balances' | 'commissions' | 'logs' | 'adjustments' | 'history'>('terminal');
 
   // Form states
   const [operator, setOperator] = useState<RechargeOperator>('Claro');
@@ -89,6 +93,8 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
   // Modals state
   const [isCommissionModalOpen, setIsCommissionModalOpen] = useState(false);
   const [isAddBalanceModalOpen, setIsAddBalanceModalOpen] = useState(false);
+  const [isAdjustBalanceModalOpen, setIsAdjustBalanceModalOpen] = useState(false);
+  const [adjustOperator, setAdjustOperator] = useState<RechargeOperator>('Claro');
   const [isManageDenominationsOpen, setIsManageDenominationsOpen] = useState(false);
   const [selectedTicketRecharge, setSelectedTicketRecharge] = useState<Recharge | null>(null);
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
@@ -103,6 +109,7 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
   const [balances, setBalances] = useState<Record<string, RechargeBalance>>({});
   const [denominations, setDenominations] = useState<RechargeDenomination[]>([]);
   const [balanceLogs, setBalanceLogs] = useState<RechargeBalanceLog[]>([]);
+  const [adjustments, setAdjustments] = useState<RechargeBalanceAdjustment[]>([]);
   const [financials, setFinancials] = useState<Record<string, RechargeFinancial>>({});
 
   // 1. Strict Role-Based Firestore Subscriptions
@@ -122,6 +129,7 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
     let unsubCommissions = () => {};
     let unsubBalances = () => {};
     let unsubLogs = () => {};
+    let unsubAdjustments = () => {};
     let unsubFinancials = () => {};
 
     // STRICT SECURITY: Only subscribe to financial, commission, log and balance collections if user is CEO
@@ -139,6 +147,10 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
         setBalanceLogs(updated);
       });
 
+      unsubAdjustments = subscribeToRechargeAdjustments((updated) => {
+        setAdjustments(updated);
+      });
+
       unsubFinancials = subscribeToRechargeFinancials((updated) => {
         setFinancials(updated);
       });
@@ -149,6 +161,7 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
       unsubCommissions();
       unsubBalances();
       unsubLogs();
+      unsubAdjustments();
       unsubFinancials();
     };
   }, [isCEO]);
@@ -649,6 +662,18 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
           </button>
 
           <button
+            onClick={() => {
+              setAdjustOperator(operator);
+              setIsAdjustBalanceModalOpen(true);
+            }}
+            className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-amber-600/20 transition-all cursor-pointer"
+            title="Ajuste manual administrativo de saldo"
+          >
+            <Sliders className="w-4 h-4" />
+            <span>Ajustar Saldo</span>
+          </button>
+
+          <button
             onClick={() => setIsManageDenominationsOpen(true)}
             className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer"
           >
@@ -718,6 +743,18 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
         >
           <History className="w-4 h-4" />
           <span>Auditoría de Movimientos ({balanceLogs.length})</span>
+        </button>
+
+        <button
+          onClick={() => setCeoActiveView('adjustments')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+            ceoActiveView === 'adjustments'
+              ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/30'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          <Sliders className="w-4 h-4" />
+          <span>Ajustes Administrativos ({adjustments.length})</span>
         </button>
 
         <button
@@ -1272,6 +1309,17 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
                             >
                               + Recargar
                             </button>
+                            <button
+                              onClick={() => {
+                                setAdjustOperator(op);
+                                setIsAdjustBalanceModalOpen(true);
+                              }}
+                              className="px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
+                              title="Ajustar saldo manualmente"
+                            >
+                              <Sliders className="w-3 h-3" />
+                              <span>Ajustar</span>
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1596,6 +1644,139 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
         </div>
       )}
 
+      {/* VIEW 4B: CEO RECHARGE BALANCE ADJUSTMENTS HISTORY */}
+      {ceoActiveView === 'adjustments' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4 animate-in fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-white">Historial de Ajustes Administrativos</h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" /> Solo CEO
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Auditoría inmutable de correcciones, cuadres de caja y diferencias de saldo sin alterar ventas ni compras
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold px-2.5 py-1 bg-slate-800 text-slate-300 rounded-lg">
+                {adjustments.length} ajustes
+              </span>
+              <button
+                onClick={() => {
+                  setAdjustOperator(operator);
+                  setIsAdjustBalanceModalOpen(true);
+                }}
+                className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md shadow-amber-500/20 transition-all cursor-pointer"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>+ Nuevo Ajuste</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs text-slate-300">
+              <thead>
+                <tr className="border-b border-slate-800 bg-slate-950/60 text-slate-400 uppercase text-[10px] tracking-wider font-semibold">
+                  <th className="py-2.5 px-3">Fecha</th>
+                  <th className="py-2.5 px-3">Hora</th>
+                  <th className="py-2.5 px-3">Compañía</th>
+                  <th className="py-2.5 px-3">Tipo</th>
+                  <th className="py-2.5 px-3">Monto</th>
+                  <th className="py-2.5 px-3">Saldo Anterior</th>
+                  <th className="py-2.5 px-3">Saldo Nuevo</th>
+                  <th className="py-2.5 px-3">Motivo</th>
+                  <th className="py-2.5 px-3">Usuario</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 font-mono">
+                {adjustments.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-10 text-center text-slate-500 italic">
+                      No hay ajustes administrativos registrados en la base de datos
+                    </td>
+                  </tr>
+                ) : (
+                  adjustments.map((adj) => {
+                    const isInc = adj.type === 'AUMENTO';
+                    const dateObj = new Date(adj.createdAt);
+                    const formattedDate = dateObj.toLocaleDateString('es-SV', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric'
+                    });
+                    const formattedTime = dateObj.toLocaleTimeString('es-SV', {
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    });
+
+                    return (
+                      <tr key={adj.id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-2.5 px-3 text-slate-400">
+                          {formattedDate}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400">
+                          {formattedTime}
+                        </td>
+                        <td className="py-2.5 px-3 font-sans font-bold text-white">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] ${
+                              adj.operator === 'Claro'
+                                ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                : adj.operator === 'Tigo'
+                                ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                                : adj.operator === 'Movistar'
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : adj.operator === 'Digicel'
+                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                            }`}
+                          >
+                            {adj.operator}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                              isInc
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            }`}
+                          >
+                            {isInc ? 'AUMENTO' : 'DISMINUCIÓN'}
+                          </span>
+                        </td>
+                        <td
+                          className={`py-2.5 px-3 font-extrabold ${
+                            isInc ? 'text-emerald-400' : 'text-rose-400'
+                          }`}
+                        >
+                          {isInc ? '+' : '-'}{formatCents(adj.amountCents)}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400">
+                          {formatCents(adj.previousBalanceCents)}
+                        </td>
+                        <td className="py-2.5 px-3 font-bold text-white">
+                          {formatCents(adj.newBalanceCents)}
+                        </td>
+                        <td className="py-2.5 px-3 font-sans text-amber-300 font-medium max-w-xs truncate" title={adj.reason}>
+                          {adj.reason}
+                        </td>
+                        <td className="py-2.5 px-3 font-sans text-slate-300">
+                          {adj.createdByName || 'CEO'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* VIEW 5: CEO HISTORIAL FINANCIERO COMPLETO */}
       {ceoActiveView === 'history' && (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4 animate-in fade-in">
@@ -1715,6 +1896,16 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
         currentUserUid={currentUser?.uid || 'ceo-uid'}
         currentUserName={currentUser?.displayName || 'Mario Barillas (CEO)'}
         defaultOperator={operator}
+      />
+
+      {/* CEO Modal: Adjust Balance */}
+      <AdjustBalanceModal
+        isOpen={isAdjustBalanceModalOpen}
+        onClose={() => setIsAdjustBalanceModalOpen(false)}
+        balances={balances}
+        currentUserUid={currentUser?.uid || 'ceo-uid'}
+        currentUserName={currentUser?.displayName || 'Mario Barillas (CEO)'}
+        defaultOperator={adjustOperator}
       />
 
       {/* CEO Modal: Manage Denominations */}

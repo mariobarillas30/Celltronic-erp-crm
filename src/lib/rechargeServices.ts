@@ -15,6 +15,8 @@ import {
   Recharge, 
   RechargeBalance, 
   RechargeBalanceLog, 
+  RechargeBalanceAdjustment,
+  RechargeAdjustmentType,
   RechargeDenomination, 
   RechargeFinancial, 
   RechargeOperator,
@@ -626,3 +628,170 @@ export async function saveRechargeDenomination(
 export async function deleteRechargeDenomination(id: string): Promise<void> {
   await deleteDoc(doc(db, 'recharge_denominations', id));
 }
+
+/**
+ * 10. Real-time subscription to Recharge Balance Adjustments (recharge_balance_adjustments - CEO Only)
+ */
+export function subscribeToRechargeAdjustments(
+  onUpdate: (adjustments: RechargeBalanceAdjustment[]) => void,
+  onError?: (err: Error) => void
+) {
+  const colRef = collection(db, 'recharge_balance_adjustments');
+  const q = query(colRef, orderBy('createdAt', 'desc'));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const list: RechargeBalanceAdjustment[] = [];
+      snapshot.forEach((d) => {
+        list.push({ id: d.id, ...(d.data() as Omit<RechargeBalanceAdjustment, 'id'>) });
+      });
+      onUpdate(list);
+    },
+    (err) => {
+      console.error('Error in subscribeToRechargeAdjustments:', err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+export interface ExecuteBalanceAdjustmentParams {
+  operator: RechargeOperator;
+  type: RechargeAdjustmentType; // 'AUMENTO' | 'DISMINUCION'
+  amountCents: number;
+  reason: string;
+  userUid: string;
+  userName: string;
+}
+
+export interface ExecuteBalanceAdjustmentResult {
+  adjustmentId: string;
+  adjustment: RechargeBalanceAdjustment;
+  previousBalanceCents: number;
+  newBalanceCents: number;
+}
+
+/**
+ * 11. ATOMIC RECHARGE BALANCE ADJUSTMENT (CEO Only)
+ * Increases or decreases operator available balance with strict validation.
+ * NEVER allows negative balance.
+ * Does NOT modify totalSoldCents or totalPurchasedCents.
+ * Concurrency protected via runTransaction().
+ */
+export async function executeRechargeBalanceAdjustmentTransaction(
+  params: ExecuteBalanceAdjustmentParams
+): Promise<ExecuteBalanceAdjustmentResult> {
+  const { operator, type, amountCents, reason, userUid, userName } = params;
+
+  if (!amountCents || amountCents <= 0) {
+    throw new Error('El monto del ajuste debe ser mayor a $0.00.');
+  }
+
+  const trimmedReason = reason?.trim();
+  if (!trimmedReason) {
+    throw new Error('Debe especificar un motivo obligatorio para el ajuste.');
+  }
+
+  const opKey = operator.toLowerCase();
+  const balanceDocRef = doc(db, 'recharge_balances', opKey);
+  const timestamp = Date.now();
+  const adjustmentId = `adj-${timestamp}`;
+  const adjDocRef = doc(db, 'recharge_balance_adjustments', adjustmentId);
+  const logId = `rlog-${timestamp}`;
+  const logDocRef = doc(db, 'recharge_balance_logs', logId);
+  const nowIso = new Date().toISOString();
+
+  const result = await runTransaction(db, async (transaction) => {
+    const balanceSnap = await transaction.get(balanceDocRef);
+
+    let prevAvailable = 0;
+    let prevPurchased = 0;
+    let prevSold = 0;
+    let minThreshold = 1000;
+
+    if (balanceSnap.exists()) {
+      const data = balanceSnap.data() as RechargeBalance;
+      prevAvailable = Number(data.availableBalanceCents ?? 0);
+      prevPurchased = Number(data.totalPurchasedCents ?? 0);
+      prevSold = Number(data.totalSoldCents ?? 0);
+      minThreshold = Number(data.minAlertThresholdCents ?? 1000);
+    } else {
+      const def = DEFAULT_INITIAL_BALANCES[opKey] || {
+        availableBalanceCents: 0,
+        totalPurchasedCents: 0,
+        totalSoldCents: 0,
+        minAlertThresholdCents: 1000
+      };
+      prevAvailable = def.availableBalanceCents;
+      prevPurchased = def.totalPurchasedCents;
+      prevSold = def.totalSoldCents;
+      minThreshold = def.minAlertThresholdCents;
+    }
+
+    const isIncrease = type === 'AUMENTO';
+    const newAvailable = isIncrease 
+      ? prevAvailable + amountCents 
+      : prevAvailable - amountCents;
+
+    // Strict validation: NEVER permit negative balance
+    if (newAvailable < 0) {
+      throw new Error(
+        'No es posible realizar el ajuste. El saldo resultante no puede ser negativo.'
+      );
+    }
+
+    // Update ONLY availableBalanceCents (totalPurchasedCents and totalSoldCents remain untouched!)
+    transaction.set(
+      balanceDocRef,
+      sanitizeForFirestore({
+        operator,
+        availableBalanceCents: newAvailable,
+        totalPurchasedCents: prevPurchased,
+        totalSoldCents: prevSold,
+        minAlertThresholdCents: minThreshold,
+        updatedAt: nowIso,
+        updatedBy: userName
+      }),
+      { merge: true }
+    );
+
+    // Record adjustment in dedicated recharge_balance_adjustments collection
+    const adjustmentData: RechargeBalanceAdjustment = {
+      id: adjustmentId,
+      operator,
+      type,
+      amountCents,
+      previousBalanceCents: prevAvailable,
+      newBalanceCents: newAvailable,
+      reason: trimmedReason,
+      createdAt: nowIso,
+      createdBy: userUid,
+      createdByName: userName
+    };
+    transaction.set(adjDocRef, sanitizeForFirestore(adjustmentData));
+
+    // Also write to audit logs so movement timeline reflects the adjustment
+    const logDocData: RechargeBalanceLog = {
+      id: logId,
+      operator,
+      type: 'AJUSTE_SALDO',
+      amountCents,
+      previousBalanceCents: prevAvailable,
+      newBalanceCents: newAvailable,
+      userUid,
+      userName,
+      notes: `Ajuste administrativo (${type}): ${trimmedReason}`,
+      createdAt: nowIso
+    };
+    transaction.set(logDocRef, sanitizeForFirestore(logDocData));
+
+    return {
+      adjustmentId,
+      adjustment: adjustmentData,
+      previousBalanceCents: prevAvailable,
+      newBalanceCents: newAvailable
+    };
+  });
+
+  return result;
+}
+
