@@ -275,48 +275,64 @@ export const POSModule: React.FC<POSModuleProps> = ({
   const processAtomicSaleInFirestore = async (sale: Sale): Promise<{ success: boolean; error?: string }> => {
     try {
       await runTransaction(db, async (transaction) => {
-        // Step 1: Read Phase - Read all product references first (Mandatory Firestore rule: reads before writes)
+        // Group total requested quantity by productId across both sale and gift items
+        const totalQtyByProductId = new Map<string, { totalQty: number; name: string }>();
+        for (const item of sale.items) {
+          const prev = totalQtyByProductId.get(item.productId);
+          if (prev) {
+            prev.totalQty += item.quantity;
+          } else {
+            totalQtyByProductId.set(item.productId, { totalQty: item.quantity, name: item.name });
+          }
+        }
+
+        // Step 1: Read Phase - Read all unique product references first (Mandatory Firestore rule: reads before writes)
+        const uniqueProductIds = Array.from(totalQtyByProductId.keys());
         const productReads = await Promise.all(
-          sale.items.map(async (item) => {
-            const prodRef = doc(db, 'products', item.productId);
+          uniqueProductIds.map(async (productId) => {
+            const prodRef = doc(db, 'products', productId);
             const snap = await transaction.get(prodRef);
-            return { item, ref: prodRef, snap };
+            return {
+              productId,
+              name: totalQtyByProductId.get(productId)!.name,
+              totalRequestedQty: totalQtyByProductId.get(productId)!.totalQty,
+              ref: prodRef,
+              snap
+            };
           })
         );
 
         // Step 2: Atomic Concurrency & Stock Validation Phase
-        for (const { item, snap } of productReads) {
+        for (const { productId, name, totalRequestedQty, snap } of productReads) {
           let availableStock = 0;
           if (snap.exists()) {
             availableStock = snap.data().stock ?? 0;
           } else {
-            const localProd = products.find(p => p.id === item.productId);
+            const localProd = products.find(p => p.id === productId);
             availableStock = localProd ? localProd.stock : 0;
           }
 
-          if (availableStock < item.quantity) {
-            throw new Error(`¡Conflicto de Concurrencia! El producto "${item.name}" ya no tiene suficiente stock disponible. (Stock real en servidor: ${availableStock}, solicitado: ${item.quantity}).`);
+          if (availableStock < totalRequestedQty) {
+            throw new Error(`¡Conflicto de Concurrencia! El producto "${name}" ya no tiene suficiente stock disponible. (Stock real en servidor: ${availableStock}, solicitado: ${totalRequestedQty}).`);
           }
         }
 
-        // Step 3: Write Phase - Deduct product stock atomically
-        for (const { item, ref, snap } of productReads) {
+        // Step 3: Write Phase - Deduct product stock atomically using total requested quantity
+        for (const { productId, name, totalRequestedQty, ref, snap } of productReads) {
           if (snap.exists()) {
             const currentStock = snap.data().stock ?? 0;
             transaction.update(ref, {
-              stock: Math.max(0, currentStock - item.quantity),
+              stock: Math.max(0, currentStock - totalRequestedQty),
               updatedAt: new Date().toISOString()
             });
           } else {
-            const localProd = products.find(p => p.id === item.productId);
-            const currentStock = localProd ? localProd.stock : item.quantity;
+            const localProd = products.find(p => p.id === productId);
+            const currentStock = localProd ? localProd.stock : totalRequestedQty;
             const fallbackProdData = sanitizeForFirestore({
               ...(localProd || {}),
-              id: item.productId,
-              name: item.name,
-              code: item.code,
-              category: item.category,
-              stock: Math.max(0, currentStock - item.quantity),
+              id: productId,
+              name,
+              stock: Math.max(0, currentStock - totalRequestedQty),
               updatedAt: new Date().toISOString()
             });
             transaction.set(ref, fallbackProdData);
@@ -336,22 +352,32 @@ export const POSModule: React.FC<POSModuleProps> = ({
     }
   };
 
-  // Add product to cart with strict stock & quantity checks
-  const addToCart = (product: Product) => {
+  // Add product to cart with strict stock & quantity checks, supporting both VENTA and REGALÍA for the same product
+  const addToCart = (product: Product, itemType: 'sale' | 'gift' = 'sale') => {
     if (product.stock <= 0) {
       alert(`⚠️ El producto ${product.name} está agotado y no tiene stock disponible.`);
       return;
     }
 
-    // Intercept Promotional & Regalía Category products: require CEO / Supervisor Authorization modal or add as gift
-    const isGiftProduct = 
+    const currentTotalInCart = cart
+      .filter(i => i.product.id === product.id)
+      .reduce((sum, i) => sum + i.quantity, 0);
+
+    if (currentTotalInCart >= product.stock) {
+      alert(`⚠️ Stock máximo alcanzado (${product.stock} unidades disponibles en inventario).`);
+      return;
+    }
+
+    // Explicit gift request or default gift product category
+    const isGift = 
+      itemType === 'gift' || 
       product.category === 'Regalía' || 
       product.category === 'Promocionales' || 
       product.isPromotional === true || 
       product.isPromotionalGift === true || 
       product.salePrice === 0;
 
-    if (isGiftProduct) {
+    if (isGift) {
       if (!promotionalAuthorizedBy && !isCEO) {
         setPendingGiftProduct(product);
         setRegaliaPin('');
@@ -364,15 +390,12 @@ export const POSModule: React.FC<POSModuleProps> = ({
       }
     }
 
+    // Normal Sale item
     setCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id && !item.isPromotionalGift);
-      if (existing) {
-        if (existing.quantity >= product.stock) {
-          alert(`⚠️ Stock máximo alcanzado (${product.stock} unidades disponibles en inventario).`);
-          return prev;
-        }
-        return prev.map(item =>
-          item.product.id === product.id && !item.isPromotionalGift
+      const existingSaleIndex = prev.findIndex(item => item.product.id === product.id && !item.isPromotionalGift);
+      if (existingSaleIndex >= 0) {
+        return prev.map((item, idx) =>
+          idx === existingSaleIndex
             ? { ...item, quantity: item.quantity + 1, subtotal: (item.quantity + 1) * item.unitPrice }
             : item
         );
@@ -400,7 +423,9 @@ export const POSModule: React.FC<POSModuleProps> = ({
             discountPercentage: discountPct,
             discountAmount: product.salePrice - initialSubtotal,
             unitPrice: product.salePrice,
-            subtotal: initialSubtotal
+            subtotal: initialSubtotal,
+            isPromotionalGift: false,
+            itemType: 'sale'
           }
         ];
       }
@@ -416,31 +441,44 @@ export const POSModule: React.FC<POSModuleProps> = ({
     setCart(prev => {
       let updated = [...prev];
       for (const { product, quantity } of items) {
-        const existingIndex = updated.findIndex(
+        const existingGiftIndex = updated.findIndex(
           i => i.product.id === product.id && i.isPromotionalGift
         );
-        if (existingIndex >= 0) {
-          const existing = updated[existingIndex];
-          const newQty = Math.min(product.stock, existing.quantity + quantity);
-          updated[existingIndex] = {
+        const currentTotalInCart = updated
+          .filter(i => i.product.id === product.id)
+          .reduce((sum, i) => sum + i.quantity, 0);
+        const maxAddable = Math.max(0, product.stock - currentTotalInCart);
+
+        if (maxAddable <= 0) {
+          alert(`⚠️ Stock máximo alcanzado para "${product.name}" (${product.stock} unidades en total).`);
+          continue;
+        }
+
+        const qtyToAdd = Math.min(maxAddable, quantity);
+
+        if (existingGiftIndex >= 0) {
+          const existing = updated[existingGiftIndex];
+          updated[existingGiftIndex] = {
             ...existing,
-            quantity: newQty,
+            quantity: existing.quantity + qtyToAdd,
             unitPrice: 0,
             subtotal: 0,
             discountPercentage: 100,
             discountAmount: 0,
             isPromotionalGift: true,
+            itemType: 'gift',
             promotionalAuthorizedBy: authorizedBy
           };
         } else {
           updated.push({
             product,
-            quantity: Math.min(product.stock, quantity),
+            quantity: qtyToAdd,
             discountPercentage: 100,
             discountAmount: 0,
             unitPrice: 0,
             subtotal: 0,
             isPromotionalGift: true,
+            itemType: 'gift',
             promotionalAuthorizedBy: authorizedBy
           });
         }
@@ -449,40 +487,45 @@ export const POSModule: React.FC<POSModuleProps> = ({
     });
   };
 
-  // Quantity button delta handler (+1 / -1)
-  const updateQuantity = (productId: string, delta: number) => {
-    setCart(prev =>
-      prev
-        .map(item => {
-          if (item.product.id === productId) {
-            const newQty = item.quantity + delta;
-            if (newQty <= 0) return null;
-            if (newQty > item.product.stock) {
-              alert(`⚠️ Stock máximo disponible para "${item.product.name}" es ${item.product.stock} unidades.`);
-              return item;
-            }
-            const unitFinal = item.isPromotionalGift ? 0 : item.unitPrice * (1 - item.discountPercentage / 100);
-            return {
-              ...item,
-              quantity: newQty,
-              subtotal: unitFinal * newQty
-            };
-          }
-          return item;
-        })
-        .filter(Boolean) as CartItem[]
-    );
+  // Quantity button delta handler (+1 / -1) - supports distinguishing Venta vs Regalía for the same product
+  const updateQuantity = (productId: string, isGift: boolean, delta: number) => {
+    setCart(prev => {
+      const targetItem = prev.find(i => i.product.id === productId && !!i.isPromotionalGift === isGift);
+      if (!targetItem) return prev;
+
+      const newQty = targetItem.quantity + delta;
+      if (newQty <= 0) {
+        return prev.filter(i => !(i.product.id === productId && !!i.isPromotionalGift === isGift));
+      }
+
+      // Check total combined quantity across both sale and gift for this product
+      const otherQty = prev
+        .filter(i => i.product.id === productId && !!i.isPromotionalGift !== isGift)
+        .reduce((sum, i) => sum + i.quantity, 0);
+
+      if (newQty + otherQty > targetItem.product.stock) {
+        alert(`⚠️ Stock máximo disponible para "${targetItem.product.name}" es ${targetItem.product.stock} unidades (Actualmente en carrito: ${targetItem.quantity + otherQty}).`);
+        return prev;
+      }
+
+      const unitFinal = targetItem.isPromotionalGift ? 0 : targetItem.unitPrice * (1 - targetItem.discountPercentage / 100);
+      return prev.map(item =>
+        (item.product.id === productId && !!item.isPromotionalGift === isGift)
+          ? { ...item, quantity: newQty, subtotal: unitFinal * newQty }
+          : item
+      );
+    });
   };
 
   // Direct quantity input change handler (Strict: positive integers only, no decimals, no letters, no negatives, <= stock)
-  const handleQuantityInputChange = (productId: string, rawVal: string) => {
+  const handleQuantityInputChange = (productId: string, isGift: boolean, rawVal: string) => {
     // Strip non-digits (disallows negative signs, decimals '.', ',', letters, 'e')
     const cleanDigits = rawVal.replace(/[^0-9]/g, '');
 
     if (cleanDigits === '') {
       setCart(prev =>
         prev.map(item =>
-          item.product.id === productId
+          item.product.id === productId && !!item.isPromotionalGift === isGift
             ? { ...item, quantity: 1, subtotal: item.isPromotionalGift ? 0 : item.unitPrice * (1 - item.discountPercentage / 100) }
             : item
         )
@@ -495,25 +538,30 @@ export const POSModule: React.FC<POSModuleProps> = ({
       parsedQty = 1;
     }
 
-    const cartItem = cart.find(i => i.product.id === productId);
-    if (cartItem && parsedQty > cartItem.product.stock) {
-      alert(`⚠️ Exceso de stock: La cantidad máxima en inventario para "${cartItem.product.name}" es de ${cartItem.product.stock} unidades.`);
-      parsedQty = cartItem.product.stock;
-    }
+    setCart(prev => {
+      const targetItem = prev.find(i => i.product.id === productId && !!i.isPromotionalGift === isGift);
+      if (!targetItem) return prev;
 
-    setCart(prev =>
-      prev.map(item => {
-        if (item.product.id === productId) {
-          const unitFinal = item.isPromotionalGift ? 0 : item.unitPrice * (1 - item.discountPercentage / 100);
-          return {
-            ...item,
-            quantity: parsedQty,
-            subtotal: unitFinal * parsedQty
-          };
-        }
-        return item;
-      })
-    );
+      const otherQty = prev
+        .filter(i => i.product.id === productId && !!i.isPromotionalGift !== isGift)
+        .reduce((sum, i) => sum + i.quantity, 0);
+
+      if (parsedQty + otherQty > targetItem.product.stock) {
+        alert(`⚠️ Exceso de stock: La cantidad máxima en inventario para "${targetItem.product.name}" es de ${targetItem.product.stock} unidades.`);
+        parsedQty = Math.max(1, targetItem.product.stock - otherQty);
+      }
+
+      const unitFinal = targetItem.isPromotionalGift ? 0 : targetItem.unitPrice * (1 - targetItem.discountPercentage / 100);
+      return prev.map(item =>
+        (item.product.id === productId && !!item.isPromotionalGift === isGift)
+          ? {
+              ...item,
+              quantity: parsedQty,
+              subtotal: unitFinal * parsedQty
+            }
+          : item
+      );
+    });
   };
 
   // Prevent invalid keys in numeric quantity inputs
@@ -523,9 +571,9 @@ export const POSModule: React.FC<POSModuleProps> = ({
     }
   };
 
-  const removeFromCart = (productId: string) => {
+  const removeFromCart = (productId: string, isGift: boolean) => {
     setCart(prev => {
-      const remaining = prev.filter(item => item.product.id !== productId);
+      const remaining = prev.filter(item => !(item.product.id === productId && !!item.isPromotionalGift === isGift));
       if (remaining.length === 0) {
         // Expire PIN permission and reset discount when cart is emptied
         setManualDiscountValue(0);
@@ -793,21 +841,39 @@ export const POSModule: React.FC<POSModuleProps> = ({
   // Regalía ($0.00) Toggle & PIN Authorization Handlers
   const handleToggleItemRegalia = (item: CartItem) => {
     if (item.isPromotionalGift) {
-      // Revert to standard price
+      // Revert from Regalía to standard price (Venta)
       setCart(prev => {
-        const next = prev.map(i =>
-          i.product.id === item.product.id
-            ? {
-                ...i,
-                unitPrice: i.product.salePrice,
-                subtotal: i.product.salePrice * i.quantity,
-                discountPercentage: 0,
-                discountAmount: 0,
-                isPromotionalGift: false,
-                promotionalAuthorizedBy: undefined
-              }
-            : i
-        );
+        const existingSale = prev.find(i => i.product.id === item.product.id && !i.isPromotionalGift);
+        let next: CartItem[];
+        if (existingSale) {
+          next = prev
+            .filter(i => !(i.product.id === item.product.id && i.isPromotionalGift))
+            .map(i =>
+              i.product.id === item.product.id && !i.isPromotionalGift
+                ? {
+                    ...i,
+                    quantity: i.quantity + item.quantity,
+                    subtotal: (i.quantity + item.quantity) * i.unitPrice,
+                    itemType: 'sale'
+                  }
+                : i
+            );
+        } else {
+          next = prev.map(i =>
+            i.product.id === item.product.id && i.isPromotionalGift
+              ? {
+                  ...i,
+                  unitPrice: i.product.salePrice,
+                  subtotal: i.product.salePrice * i.quantity,
+                  discountPercentage: 0,
+                  discountAmount: 0,
+                  isPromotionalGift: false,
+                  itemType: 'sale',
+                  promotionalAuthorizedBy: undefined
+                }
+              : i
+          );
+        }
         if (!next.some(x => x.isPromotionalGift) && !isCEO) {
           setPromotionalAuthorizedBy(null);
         }
@@ -818,21 +884,40 @@ export const POSModule: React.FC<POSModuleProps> = ({
       if (isCEO || promotionalAuthorizedBy) {
         const authName = promotionalAuthorizedBy || (isCEO ? 'CEO' : 'Supervisor');
         if (!promotionalAuthorizedBy) setPromotionalAuthorizedBy(authName);
-        setCart(prev =>
-          prev.map(i =>
-            i.product.id === item.product.id
-              ? {
-                  ...i,
-                  unitPrice: 0,
-                  subtotal: 0,
-                  discountPercentage: 100,
-                  discountAmount: 0,
-                  isPromotionalGift: true,
-                  promotionalAuthorizedBy: authName
-                }
-              : i
-          )
-        );
+        setCart(prev => {
+          const existingGift = prev.find(i => i.product.id === item.product.id && i.isPromotionalGift);
+          if (existingGift) {
+            return prev
+              .filter(i => !(i.product.id === item.product.id && !i.isPromotionalGift))
+              .map(i =>
+                i.product.id === item.product.id && i.isPromotionalGift
+                  ? {
+                      ...i,
+                      quantity: i.quantity + item.quantity,
+                      unitPrice: 0,
+                      subtotal: 0,
+                      itemType: 'gift',
+                      promotionalAuthorizedBy: authName
+                    }
+                  : i
+              );
+          } else {
+            return prev.map(i =>
+              i.product.id === item.product.id && !i.isPromotionalGift
+                ? {
+                    ...i,
+                    unitPrice: 0,
+                    subtotal: 0,
+                    discountPercentage: 100,
+                    discountAmount: 0,
+                    isPromotionalGift: true,
+                    itemType: 'gift',
+                    promotionalAuthorizedBy: authName
+                  }
+                : i
+            );
+          }
+        });
       } else {
         // Block and request PIN
         setPendingRegaliaProductId(item.product.id);
@@ -896,21 +981,42 @@ export const POSModule: React.FC<POSModuleProps> = ({
       setPromotionalAuthorizedBy(authName);
 
       if (pendingRegaliaProductId) {
-        setCart(prev =>
-          prev.map(i =>
-            i.product.id === pendingRegaliaProductId
-              ? {
-                  ...i,
-                  unitPrice: 0,
-                  subtotal: 0,
-                  discountPercentage: 100,
-                  discountAmount: 0,
-                  isPromotionalGift: true,
-                  promotionalAuthorizedBy: authName
-                }
-              : i
-          )
-        );
+        setCart(prev => {
+          const target = prev.find(i => i.product.id === pendingRegaliaProductId && !i.isPromotionalGift);
+          if (!target) return prev;
+          const existingGift = prev.find(i => i.product.id === pendingRegaliaProductId && i.isPromotionalGift);
+          if (existingGift) {
+            return prev
+              .filter(i => !(i.product.id === pendingRegaliaProductId && !i.isPromotionalGift))
+              .map(i =>
+                i.product.id === pendingRegaliaProductId && i.isPromotionalGift
+                  ? {
+                      ...i,
+                      quantity: i.quantity + target.quantity,
+                      unitPrice: 0,
+                      subtotal: 0,
+                      itemType: 'gift',
+                      promotionalAuthorizedBy: authName
+                    }
+                  : i
+              );
+          } else {
+            return prev.map(i =>
+              i.product.id === pendingRegaliaProductId && !i.isPromotionalGift
+                ? {
+                    ...i,
+                    unitPrice: 0,
+                    subtotal: 0,
+                    discountPercentage: 100,
+                    discountAmount: 0,
+                    isPromotionalGift: true,
+                    itemType: 'gift',
+                    promotionalAuthorizedBy: authName
+                  }
+                : i
+            );
+          }
+        });
         setPendingRegaliaProductId(null);
       }
 
@@ -1094,7 +1200,8 @@ export const POSModule: React.FC<POSModuleProps> = ({
           discountAmount: item.isPromotionalGift ? 0 : (item.discountAmount + ((item.subtotal * manualDiscountPercent) / 100)),
           subtotal: item.isPromotionalGift ? 0 : (item.subtotal * (1 - manualDiscountPercent / 100)),
           ...(item.isPromotionalGift ? { isPromotionalGift: true } : {}),
-          ...(item.promotionalAuthorizedBy ? { promotionalAuthorizedBy: item.promotionalAuthorizedBy } : {})
+          ...(item.promotionalAuthorizedBy ? { promotionalAuthorizedBy: item.promotionalAuthorizedBy } : {}),
+          itemType: item.isPromotionalGift ? 'gift' : 'sale'
         };
         return itemObj;
       }),
@@ -1312,24 +1419,30 @@ export const POSModule: React.FC<POSModuleProps> = ({
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    disabled={isOutOfStock}
-                    onClick={() => addToCart(product)}
-                    className={`px-2.5 py-1 rounded-xl text-[10px] font-bold transition-all flex items-center gap-1 ${
-                      isOutOfStock
-                        ? 'bg-red-500/10 text-red-400 border border-red-500/20 cursor-not-allowed'
-                        : 'bg-blue-600 hover:bg-blue-500 text-white shadow-xs cursor-pointer'
-                    }`}
-                  >
-                    {isOutOfStock ? (
-                      'Agotado'
-                    ) : (
-                      <>
-                        <Plus className="w-3 h-3" /> Agregar ({product.stock})
-                      </>
-                    )}
-                  </button>
+                  {isOutOfStock ? (
+                    <span className="px-2.5 py-1 rounded-xl text-[10px] font-bold bg-red-500/10 text-red-400 border border-red-500/20">
+                      Agotado
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => addToCart(product, 'sale')}
+                        className="px-2 py-1 rounded-lg text-[10px] font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-xs flex items-center gap-1 cursor-pointer transition-colors"
+                        title={`Agregar como Venta ($${product.salePrice.toFixed(2)})`}
+                      >
+                        <Plus className="w-3 h-3" /> Venta ({product.stock})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => addToCart(product, 'gift')}
+                        className="px-2 py-1 rounded-lg text-[10px] font-bold bg-purple-950/80 hover:bg-purple-600 text-purple-300 hover:text-white border border-purple-600/40 flex items-center gap-1 cursor-pointer transition-colors"
+                        title="Agregar como Regalía ($0.00)"
+                      >
+                        <Gift className="w-3 h-3" /> Regalía
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -1540,113 +1653,128 @@ export const POSModule: React.FC<POSModuleProps> = ({
                 El carrito está vacío. Haz clic en un producto para agregarlo.
               </div>
             ) : (
-              cart.map((item) => (
-                <div
-                  key={item.product.id}
-                  className={`border rounded-xl p-2.5 flex items-center justify-between gap-2 transition-all ${
-                    item.isPromotionalGift
-                      ? 'bg-purple-950/30 border-purple-800/60 shadow-xs'
-                      : 'bg-slate-800/80 border-slate-700/60'
-                  }`}
-                >
-                  <div className="overflow-hidden flex-1">
-                    {item.isPromotionalGift ? (
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="px-1.5 py-0.2 bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded text-[9px] font-extrabold flex items-center gap-1">
-                            <Gift className="w-2.5 h-2.5" /> REGALO $0.00
-                          </span>
-                          <p className="text-xs font-bold text-purple-100 truncate">{item.product.name}</p>
+              cart.map((item) => {
+                const itemKey = `${item.product.id}-${item.isPromotionalGift ? 'gift' : 'sale'}`;
+                return (
+                  <div
+                    key={itemKey}
+                    className={`border rounded-xl p-2.5 flex items-center justify-between gap-2 transition-all ${
+                      item.isPromotionalGift
+                        ? 'bg-purple-950/30 border-purple-800/60 shadow-xs'
+                        : 'bg-slate-800/80 border-slate-700/60'
+                    }`}
+                  >
+                    <div className="overflow-hidden flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {/* Type Indicator: VENTA / REGALÍA Selector */}
+                        <div className="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-700 text-[10px] shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => item.isPromotionalGift ? handleToggleItemRegalia(item) : null}
+                            className={`px-1.5 py-0.5 rounded-md font-bold transition-all cursor-pointer ${
+                              !item.isPromotionalGift
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                            title="Cambiar a Venta regular"
+                          >
+                            Venta
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => !item.isPromotionalGift ? handleToggleItemRegalia(item) : null}
+                            className={`px-1.5 py-0.5 rounded-md font-bold transition-all cursor-pointer flex items-center gap-0.5 ${
+                              item.isPromotionalGift
+                                ? 'bg-purple-600 text-white shadow-xs'
+                                : 'text-slate-400 hover:text-purple-300'
+                            }`}
+                            title="Cambiar a Regalía ($0.00)"
+                          >
+                            <Gift className="w-2.5 h-2.5" /> Regalía
+                          </button>
                         </div>
-                        <p className="text-[10px] text-purple-300 font-semibold mt-0.5">
-                          $0.00 (Gratis) • <span className="text-slate-400">Aut. CEO: {item.promotionalAuthorizedBy || 'CEO'}</span>
+
+                        <p className={`text-xs font-bold truncate ${item.isPromotionalGift ? 'text-purple-100' : 'text-slate-100'}`}>
+                          {item.product.name}
                         </p>
                       </div>
-                    ) : (
-                      <div>
-                        <p className="text-xs font-bold text-slate-100 truncate">{item.product.name}</p>
-                        <p className="text-[10px] text-emerald-400 font-mono font-semibold">
-                          ${item.unitPrice.toFixed(2)} c/u
+
+                      {item.isPromotionalGift ? (
+                        <p className="text-[10px] text-purple-300 font-semibold mt-0.5 flex items-center gap-1.5 flex-wrap">
+                          <span>$0.00 (Gratis)</span>
+                          <span>•</span>
+                          <span className="text-slate-400">Stock: {item.product.stock}</span>
+                          <span>•</span>
+                          <span className="text-purple-300 font-mono text-[9px]">Aut: {item.promotionalAuthorizedBy || 'CEO'}</span>
+                        </p>
+                      ) : (
+                        <p className="text-[10px] text-emerald-400 font-mono font-semibold mt-0.5 flex items-center gap-1.5">
+                          <span>${item.unitPrice.toFixed(2)} c/u</span>
                           {item.discountAmount > 0 && (
-                            <span className="text-amber-400 ml-1">(-${item.discountAmount.toFixed(2)})</span>
+                            <span className="text-amber-400">(-${item.discountAmount.toFixed(2)})</span>
                           )}
+                          <span className="text-slate-500 font-sans">• Stock: {item.product.stock}</span>
                         </p>
-                      </div>
-                    )}
+                      )}
+                    </div>
+
+                    {/* Strict Quantity Controls (Numeric Input + Delta Buttons) */}
+                    <div className={`flex items-center gap-1 bg-slate-900 px-1.5 py-1 rounded-lg border ${
+                      item.isPromotionalGift ? 'border-purple-800/60' : 'border-slate-700'
+                    }`}>
+                      <button
+                        type="button"
+                        onClick={() => updateQuantity(item.product.id, !!item.isPromotionalGift, -1)}
+                        disabled={item.quantity <= 1}
+                        className="p-1 hover:text-white text-slate-400 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                        title="Disminuir cantidad"
+                      >
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={item.quantity}
+                        onChange={(e) => handleQuantityInputChange(item.product.id, !!item.isPromotionalGift, e.target.value)}
+                        onKeyDown={preventNonNumericKeys}
+                        className={`w-9 text-center font-bold text-xs bg-slate-800 border text-white rounded py-0.5 focus:outline-hidden ${
+                          item.isPromotionalGift ? 'border-purple-700/60 focus:border-purple-500' : 'border-slate-700 focus:border-blue-500'
+                        }`}
+                        title={item.isPromotionalGift ? 'Cantidad de cortesía' : 'Cantidad'}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => updateQuantity(item.product.id, !!item.isPromotionalGift, 1)}
+                        disabled={item.quantity >= item.product.stock}
+                        className="p-1 hover:text-white text-slate-400 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                        title="Aumentar cantidad"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    <div className="text-right min-w-16">
+                      <p className={`text-xs font-extrabold ${item.isPromotionalGift ? 'text-purple-300' : 'text-white'}`}>
+                        ${(item.subtotal).toFixed(2)}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => removeFromCart(item.product.id, !!item.isPromotionalGift)}
+                        className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 cursor-pointer"
+                        title="Eliminar del carrito"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-
-                  {/* Strict Quantity Controls (Numeric Input + Delta Buttons) */}
-                  <div className={`flex items-center gap-1 bg-slate-900 px-1.5 py-1 rounded-lg border ${
-                    item.isPromotionalGift ? 'border-purple-800/60' : 'border-slate-700'
-                  }`}>
-                    <button
-                      type="button"
-                      onClick={() => updateQuantity(item.product.id, -1)}
-                      disabled={item.quantity <= 1}
-                      className="p-1 hover:text-white text-slate-400 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                      title="Disminuir cantidad"
-                    >
-                      <Minus className="w-3 h-3" />
-                    </button>
-                    
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      value={item.quantity}
-                      onChange={(e) => handleQuantityInputChange(item.product.id, e.target.value)}
-                      onKeyDown={preventNonNumericKeys}
-                      className={`w-9 text-center font-bold text-xs bg-slate-800 border text-white rounded py-0.5 focus:outline-hidden ${
-                        item.isPromotionalGift ? 'border-purple-700/60 focus:border-purple-500' : 'border-slate-700 focus:border-blue-500'
-                      }`}
-                      title={item.isPromotionalGift ? 'Cantidad de cortesía' : 'Cantidad'}
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() => updateQuantity(item.product.id, 1)}
-                      disabled={item.quantity >= item.product.stock}
-                      className="p-1 hover:text-white text-slate-400 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                      title="Aumentar cantidad"
-                    >
-                      <Plus className="w-3 h-3" />
-                    </button>
-                  </div>
-
-                  <div className="text-right min-w-16">
-                    <p className={`text-xs font-extrabold ${item.isPromotionalGift ? 'text-purple-300' : 'text-white'}`}>
-                      ${(item.subtotal).toFixed(2)}
-                    </p>
-                    {item.isPromotionalGift && (
-                      <span className="text-[9px] text-slate-400 block font-mono">Stock: {item.product.stock}</span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => handleToggleItemRegalia(item)}
-                      className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-                        item.isPromotionalGift
-                          ? 'bg-purple-600 text-white border-purple-500 hover:bg-purple-500 shadow-xs'
-                          : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-purple-300 hover:border-purple-500/50'
-                      }`}
-                      title={item.isPromotionalGift ? 'Quitar condición de Regalía (Volver a precio de lista)' : 'Convertir en Regalía ($0.00)'}
-                    >
-                      <Gift className="w-3.5 h-3.5" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => removeFromCart(item.product.id)}
-                      className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-red-500/10 cursor-pointer"
-                      title="Eliminar del carrito"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

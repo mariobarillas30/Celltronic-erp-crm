@@ -14,7 +14,8 @@ import {
   Calculator,
   Wallet,
   Shield,
-  Layers
+  Layers,
+  CloudUpload
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { UserRole } from '../../types';
@@ -48,12 +49,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'kpis', label: 'Dashboard KPIs', icon: BarChart3 },
     { id: 'petty_cash', label: 'Caja Chica & Reserva (CEO)', icon: Wallet },
     { id: 'users', label: 'Gestión Usuarios & Permisos', icon: Users },
+    { id: 'backups', label: 'Copias de Seguridad (Cloud)', icon: CloudUpload },
   ];
 
   // Dynamic Filtering: If user has explicit allowedModules defined, respect those in real-time
   const allowedModulesList = currentUser?.allowedModules || (
-    isCEO ? ['pos', 'arqueo', 'inventory', 'repairs', 'customers', 'recharges', 'promotions', 'kpis', 'petty_cash', 'users'] :
-    role === 'Gerente' || role === 'Supervisor' ? ['pos', 'arqueo', 'inventory', 'repairs', 'customers', 'recharges', 'promotions', 'kpis'] :
+    isCEO ? ['pos', 'arqueo', 'inventory', 'repairs', 'customers', 'recharges', 'promotions', 'kpis', 'petty_cash', 'users', 'backups'] :
+    role === 'Gerente' || role === 'Supervisor' ? ['pos', 'arqueo', 'inventory', 'repairs', 'customers', 'recharges', 'promotions', 'kpis', 'backups'] :
     role === 'Técnico' ? ['repairs', 'inventory', 'customers'] :
     ['pos', 'arqueo', 'inventory', 'repairs', 'customers', 'recharges']
   );
@@ -64,6 +66,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
     if (item.id === 'users') {
       return isCEO || allowedModulesList.includes('users');
+    }
+    if (item.id === 'backups') {
+      return isCEO || allowedModulesList.includes('backups');
     }
     return allowedModulesList.includes(item.id);
   });

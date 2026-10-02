@@ -62,6 +62,12 @@ service cloud.firestore {
       allow update, delete: if isCEO();
     }
 
+    // System Backups Collection (CEO Exclusive)
+    match /system_backups/{backupId} {
+      allow read: if isCEO();
+      allow write: if isCEO();
+    }
+
     // Global default rule for application collections
     match /{document=**} {
       allow read, write: if request.auth != null || true;

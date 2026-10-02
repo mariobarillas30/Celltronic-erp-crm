@@ -62,6 +62,7 @@ export interface CartItem {
   subtotal: number;
   isPromotionalGift?: boolean; // Cortesía autorizada por CEO ($0.00 al cliente, descuenta stock)
   promotionalAuthorizedBy?: string; // Nombre del CEO/Supervisor que autorizó el regalo
+  itemType?: 'sale' | 'gift'; // Indicador de tipo: VENTA o REGALÍA
 }
 
 export type CustomerType = 'Regular' | 'VIP' | 'Mayorista' | 'Lead/Prospecto';
@@ -113,6 +114,7 @@ export interface Sale {
     subtotal: number;
     isPromotionalGift?: boolean;
     promotionalAuthorizedBy?: string;
+    itemType?: 'sale' | 'gift';
   }[];
   subtotal: number;
   discountTotal: number;
@@ -355,5 +357,21 @@ export interface PettyCashFund {
   minAlertThreshold: number; // Límite mínimo de alerta (e.g. $50.00)
   injections: PettyCashInjection[];
   updatedAt: string;
+}
+
+export interface SystemBackupRecord {
+  id: string;
+  backupId: string;
+  fileName: string;
+  storagePath: string;
+  downloadUrl?: string;
+  createdAt: string;
+  triggeredBy: string;
+  totalCollections: number;
+  totalDocuments: number;
+  sizeBytes: number;
+  status: 'success' | 'failed' | 'in_progress';
+  collectionsSummary?: Record<string, number>;
+  errorMessage?: string;
 }
 

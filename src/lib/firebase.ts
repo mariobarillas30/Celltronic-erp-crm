@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, setLogLevel } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
+import { getStorage } from 'firebase/storage';
 import firebaseAppletConfig from '../../firebase-applet-config.json';
 
 // Silence benign network retry logs when Firestore is operating in resilient offline/cached mode
@@ -24,5 +25,6 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 // Initialize Firestore directly with databaseId from config
 export const db = getFirestore(app, firebaseAppletConfig.firestoreDatabaseId); /* CRITICAL: The app will break without this line */
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 export { app };
 

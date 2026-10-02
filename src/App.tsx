@@ -18,6 +18,8 @@ import { UsersModule } from './components/users/UsersModule';
 import { CustomersModule } from './components/customers/CustomersModule';
 import { AIAssistantModal } from './components/ai/AIAssistantModal';
 import { PettyCashCEOModule } from './components/petty_cash/PettyCashCEOModule';
+import { BackupsModule } from './components/backups/BackupsModule';
+import { checkAndRunScheduledBackup, performFirestoreBackup } from './lib/backupService';
 
 import { 
   Product, 
@@ -104,6 +106,13 @@ function MainAppContent() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [pettyCashFund, setPettyCashFund] = useState<PettyCashFund>(INITIAL_PETTY_CASH_FUND);
   const [pettyCashExpenses, setPettyCashExpenses] = useState<PettyCashExpense[]>([]);
+
+  // Automated Daily Backup Check (Periodical 24h & Shift Closure Consistency)
+  useEffect(() => {
+    checkAndRunScheduledBackup({ intervalHours: 24, triggeredBy: 'Automático (Programado)' }).catch(e => {
+      console.warn('Auto backup check note:', e);
+    });
+  }, []);
 
   // Real-time Firestore Sync Engine (onSnapshot for all business entities)
   useEffect(() => {
@@ -272,6 +281,10 @@ function MainAppContent() {
     };
     try {
       await setDoc(doc(db, 'shifts', shiftId), updated, { merge: true });
+      // Trigger automatic consistent backup on shift closure in background
+      performFirestoreBackup({ triggeredBy: `Cierre de Turno (${targetShift.cashierName})` }).catch(bErr => {
+        console.warn('Shift closure auto-backup note:', bErr);
+      });
     } catch (e: any) {
       console.error('Error closing shift in Firestore:', e);
       alert(`❌ Error al cerrar turno en Firestore: ${e?.message || 'Error de conexión'}`);
@@ -769,6 +782,10 @@ function MainAppContent() {
 
               {activeTab === 'users' && (
                 <UsersModule />
+              )}
+
+              {activeTab === 'backups' && (
+                <BackupsModule />
               )}
             </>
           )}
