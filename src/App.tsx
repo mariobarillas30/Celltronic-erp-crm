@@ -9,6 +9,7 @@ import { CelltronicLogo } from './components/common/CelltronicLogo';
 
 import { POSModule } from './components/pos/POSModule';
 import { CashClosureModule } from './components/pos/CashClosureModule';
+import { SalesHistoryModule } from './components/sales/SalesHistoryModule';
 import { InventoryModule } from './components/inventory/InventoryModule';
 import { RepairsModule } from './components/repairs/RepairsModule';
 import { RechargesModule } from './components/recharges/RechargesModule';
@@ -107,6 +108,14 @@ function MainAppContent() {
   const [pettyCashFund, setPettyCashFund] = useState<PettyCashFund>(INITIAL_PETTY_CASH_FUND);
   const [pettyCashExpenses, setPettyCashExpenses] = useState<PettyCashExpense[]>([]);
 
+  // Sales History contextual filter (e.g. from cash closure)
+  const [salesHistoryFilter, setSalesHistoryFilter] = useState<{
+    cashierName?: string;
+    startDate?: string;
+    endDate?: string;
+    shiftId?: string;
+  } | null>(null);
+
   // Automated Daily Backup Check (Periodical 24h & Shift Closure Consistency)
   useEffect(() => {
     checkAndRunScheduledBackup({ intervalHours: 24, triggeredBy: 'Automático (Programado)' }).catch(e => {
@@ -200,9 +209,10 @@ function MainAppContent() {
   useEffect(() => {
     if (!currentUser) return;
     const allowed = currentUser.allowedModules || DEFAULT_ROLE_MODULES[role] || ['pos'];
+    const isAllowed = allowed.includes(activeTab) || (activeTab === 'sales_history' && (allowed.includes('pos') || allowed.includes('arqueo')));
 
     // If current tab is not allowed for active role, redirect to first allowed tab
-    if (!allowed.includes(activeTab)) {
+    if (!isAllowed) {
       const defaultTarget = allowed.includes('repairs') && role === 'Técnico' ? 'repairs' : allowed[0] || 'pos';
       setActiveTab(defaultTarget);
     }
@@ -234,7 +244,7 @@ function MainAppContent() {
 
   // Check if current active tab is strictly allowed
   const allowedList = currentUser.allowedModules || DEFAULT_ROLE_MODULES[role] || ['pos'];
-  const isTabAllowed = allowedList.includes(activeTab);
+  const isTabAllowed = allowedList.includes(activeTab) || (activeTab === 'sales_history' && (allowedList.includes('pos') || allowedList.includes('arqueo')));
 
   // Cash Shift Handlers
   const handleOpenShift = async (initialAmount: number) => {
@@ -699,6 +709,14 @@ function MainAppContent() {
                 />
               )}
 
+              {activeTab === 'sales_history' && (
+                <SalesHistoryModule
+                  sales={sales}
+                  initialFilter={salesHistoryFilter}
+                  onClearInitialFilter={() => setSalesHistoryFilter(null)}
+                />
+              )}
+
               {activeTab === 'arqueo' && (
                 <CashClosureModule
                   cashShifts={cashShifts}
@@ -710,6 +728,10 @@ function MainAppContent() {
                   onOpenShift={handleOpenShift}
                   onCloseShift={handleCloseShift}
                   onRegisterPettyCashExpense={handleRegisterPettyCashExpense}
+                  onNavigateToSalesHistory={(filter) => {
+                    setSalesHistoryFilter(filter);
+                    setActiveTab('sales_history');
+                  }}
                 />
               )}
 

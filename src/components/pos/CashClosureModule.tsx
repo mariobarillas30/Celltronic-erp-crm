@@ -19,11 +19,18 @@ import {
   ShieldCheck,
   DollarSign,
   Receipt,
-  Wallet
+  Wallet,
+  ExternalLink,
+  Smartphone,
+  Wrench,
+  X,
+  Eye
 } from 'lucide-react';
 import { CashShift, Sale, Recharge, Repair, PettyCashExpense, Supplier } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { PettyCashExpenseModal } from '../petty_cash/PettyCashExpenseModal';
+import { TicketPrint } from './TicketPrint';
+import { RechargeTicketModal } from '../recharges/RechargeTicketModal';
 
 interface CashClosureModuleProps {
   cashShifts: CashShift[];
@@ -35,6 +42,12 @@ interface CashClosureModuleProps {
   onOpenShift: (initialAmount: number) => void;
   onCloseShift: (shiftId: string, actualCountedCash: number, notes: string) => void;
   onRegisterPettyCashExpense?: (expense: Omit<PettyCashExpense, 'id' | 'voucherNumber' | 'createdAt'>) => Promise<PettyCashExpense> | PettyCashExpense;
+  onNavigateToSalesHistory?: (filter: {
+    cashierName?: string;
+    startDate?: string;
+    endDate?: string;
+    shiftId?: string;
+  }) => void;
 }
 
 export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
@@ -46,7 +59,8 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
   suppliers = [],
   onOpenShift,
   onCloseShift,
-  onRegisterPettyCashExpense
+  onRegisterPettyCashExpense,
+  onNavigateToSalesHistory
 }) => {
   const { currentUser, role, isCEO, verifySupervisorPin } = useAuth();
 
@@ -67,6 +81,24 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
   const [closingNotes, setClosingNotes] = useState('');
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [showPettyCashModal, setShowPettyCashModal] = useState(false);
+
+  // Modals for inspecting original transactions from the shift breakdown
+  const [selectedSaleForTicket, setSelectedSaleForTicket] = useState<Sale | null>(null);
+  const [selectedRechargeForTicket, setSelectedRechargeForTicket] = useState<Recharge | null>(null);
+  const [selectedRepairForDetail, setSelectedRepairForDetail] = useState<Repair | null>(null);
+
+  const getRepairStatusBadge = (status: string) => {
+    switch (status) {
+      case 'Recibido': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+      case 'En Diagnóstico': return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
+      case 'Esperando Repuesto': return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+      case 'En Reparación': return 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30';
+      case 'Listo para Entregar': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+      case 'Entregado': return 'bg-slate-700 text-slate-300 border-slate-600';
+      case 'Cancelado': return 'bg-red-500/20 text-red-400 border-red-500/30';
+      default: return 'bg-slate-800 text-slate-300 border-slate-700';
+    }
+  };
 
   const isMasked = role === 'Cajero' && !isSupervisorUnlocked;
 
@@ -109,58 +141,62 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
     closePinModal();
   };
 
+  // Selected shift for inspection in the breakdown (defaults to activeShift if available, or selected from history)
+  const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
+
   // Active shift lookup
   const activeShift = useMemo(() => {
     return cashShifts.find(s => s.status === 'open') || null;
   }, [cashShifts]);
 
-  // Compute live sales breakdown for active shift
-  const currentShiftMetrics = useMemo(() => {
-    if (!activeShift) {
-      return {
-        cashSales: 0,
-        cardSales: 0,
-        transferSales: 0,
-        mixedSales: 0,
-        totalSales: 0,
-        salesCount: 0,
-        rechargesTotal: 0,
-        rechargesCount: 0,
-        repairsTotal: 0,
-        repairsCount: 0,
-        expectedCashInDrawer: 0,
-        totalRevenue: 0,
-        shiftSalesList: [] as Sale[],
-        shiftRechargesList: [] as Recharge[],
-        shiftRepairsList: [] as Repair[]
-      };
+  // The shift currently being inspected in the metrics & breakdown
+  const inspectedShift = useMemo(() => {
+    if (selectedShiftId) {
+      return cashShifts.find(s => s.id === selectedShiftId) || null;
     }
+    return activeShift;
+  }, [selectedShiftId, cashShifts, activeShift]);
 
-    const shiftStartTime = new Date(activeShift.openedAt).getTime();
+  // Compute live sales breakdown for inspected shift (or all system operations if no shift opened yet)
+  const currentShiftMetrics = useMemo(() => {
+    let shiftSales: Sale[] = [];
+    let shiftRecharges: Recharge[] = [];
+    let shiftRepairs: Repair[] = [];
+    let shiftPettyCash: PettyCashExpense[] = [];
+    let initialAmount = 0;
 
-    // Filter sales during shift
-    const shiftSales = sales.filter(s => {
-      const saleTime = new Date(s.createdAt || s.date).getTime();
-      return saleTime >= shiftStartTime && s.status !== 'Anulada';
-    });
+    if (inspectedShift) {
+      const shiftStartTime = new Date(inspectedShift.openedAt).getTime();
+      const shiftEndTime = inspectedShift.closedAt ? new Date(inspectedShift.closedAt).getTime() : Infinity;
+      initialAmount = inspectedShift.initialAmount || 0;
 
-    // Filter recharges during shift
-    const shiftRecharges = recharges.filter(r => {
-      const rechTime = new Date(r.createdAt || r.date).getTime();
-      return rechTime >= shiftStartTime && r.status !== 'Anulada';
-    });
+      shiftSales = sales.filter(s => {
+        const saleTime = new Date(s.createdAt || s.date).getTime();
+        return saleTime >= shiftStartTime && saleTime <= shiftEndTime && s.status !== 'Anulada';
+      });
 
-    // Filter repairs received or advance paid during shift
-    const shiftRepairs = repairs.filter(rep => {
-      const repTime = new Date(rep.receivedDate).getTime();
-      return repTime >= shiftStartTime;
-    });
+      shiftRecharges = recharges.filter(r => {
+        const rechTime = new Date(r.createdAt || r.date).getTime();
+        return rechTime >= shiftStartTime && rechTime <= shiftEndTime && r.status !== 'Anulada';
+      });
 
-    // Filter petty cash outflows during shift
-    const shiftPettyCash = pettyCashExpenses.filter(exp => {
-      const expTime = new Date(exp.createdAt || exp.date).getTime();
-      return expTime >= shiftStartTime && exp.status !== 'Anulado';
-    });
+      shiftRepairs = repairs.filter(rep => {
+        const repTime = new Date(rep.receivedDate).getTime();
+        return repTime >= shiftStartTime && repTime <= shiftEndTime;
+      });
+
+      shiftPettyCash = pettyCashExpenses.filter(exp => {
+        const expTime = new Date(exp.createdAt || exp.date).getTime();
+        return expTime >= shiftStartTime && expTime <= shiftEndTime && exp.status !== 'Anulado';
+      });
+    } else {
+      // No active or historical shift opened yet: display all recorded operations in the system
+      shiftSales = sales.filter(s => s.status !== 'Anulada');
+      shiftRecharges = recharges.filter(r => r.status !== 'Anulada');
+      shiftRepairs = [...repairs];
+      shiftPettyCash = pettyCashExpenses.filter(exp => exp.status !== 'Anulado');
+      initialAmount = 0;
+    }
 
     let cashSales = 0;
     let cardSales = 0;
@@ -180,7 +216,7 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
 
     const totalSales = cashSales + cardSales + transferSales + mixedSales;
     // Expected physical cash in drawer = Initial Float + Cash Sales + Cash Recharges + Repair Advances - Petty Cash Outflows
-    const expectedCashInDrawer = activeShift.initialAmount + cashSales + rechargesTotal + repairsTotal - pettyCashTotal;
+    const expectedCashInDrawer = initialAmount + cashSales + rechargesTotal + repairsTotal - pettyCashTotal;
     const totalRevenue = totalSales + rechargesTotal + repairsTotal;
 
     return {
@@ -203,7 +239,7 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
       shiftRepairsList: shiftRepairs,
       shiftPettyCashList: shiftPettyCash
     };
-  }, [activeShift, sales, recharges, repairs, pettyCashExpenses]);
+  }, [inspectedShift, sales, recharges, repairs, pettyCashExpenses]);
 
   // Handle open shift submit
   const handleOpenShiftSubmit = (e: React.FormEvent) => {
@@ -372,18 +408,31 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
         </div>
       )}
 
-      {/* SECTION 2: ACTIVE SHIFT METRICS DASHBOARD */}
-      {activeShift && (
-        <div className="space-y-6">
-          {/* Active Shift Details Bar */}
+      {/* SECTION 2: ACTIVE OR INSPECTED SHIFT METRICS DASHBOARD */}
+      <div id="desglose-transacciones-turno" className="space-y-6 scroll-mt-6">
+        {/* Active or Inspected Shift Details Bar */}
+        {inspectedShift ? (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center border border-cyan-500/30">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${
+                inspectedShift.status === 'open' 
+                  ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' 
+                  : 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+              }`}>
                 <Clock className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-xs text-slate-400">Atendido por:</p>
-                <p className="text-sm font-bold text-white">{activeShift.cashierName}</p>
+                <p className="text-xs text-slate-400">
+                  {inspectedShift.status === 'open' ? 'Turno Activo Atendido por:' : 'Turno Cerrado Atendido por:'}
+                </p>
+                <p className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>{inspectedShift.cashierName}</span>
+                  {selectedShiftId && selectedShiftId !== activeShift?.id && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                      Histórico
+                    </span>
+                  )}
+                </p>
               </div>
             </div>
 
@@ -391,16 +440,25 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
               <div>
                 <span className="text-slate-400">Inicio de Turno:</span>
                 <p className="font-bold text-slate-200">
-                  {new Date(activeShift.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({new Date(activeShift.openedAt).toLocaleDateString()})
+                  {new Date(inspectedShift.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({new Date(inspectedShift.openedAt).toLocaleDateString()})
                 </p>
               </div>
               <div>
                 <span className="text-slate-400">Fondo Inicial:</span>
                 <p className="font-extrabold text-amber-400">
-                  {isMasked ? '••••••' : `$${activeShift.initialAmount.toFixed(2)}`}
+                  {isMasked ? '••••••' : `$${inspectedShift.initialAmount.toFixed(2)}`}
                 </p>
               </div>
-              {onRegisterPettyCashExpense && (
+              {selectedShiftId && selectedShiftId !== activeShift?.id && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedShiftId(null)}
+                  className="px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                >
+                  <span>← Volver al Turno Activo</span>
+                </button>
+              )}
+              {activeShift && inspectedShift.id === activeShift.id && onRegisterPettyCashExpense && (
                 <button
                   type="button"
                   onClick={() => setShowPettyCashModal(true)}
@@ -412,6 +470,21 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
               )}
             </div>
           </div>
+        ) : (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-slate-400 border border-slate-700">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="font-bold text-white">Caja sin Turno Abierto Actualmente</p>
+                <p className="text-[11px] text-slate-400">
+                  Mostrando todas las operaciones y transacciones registradas en el sistema.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
           {/* Key Metrics Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
@@ -477,7 +550,7 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
               <p className="text-[10px] text-emerald-400/80 font-mono">
                 {isMasked
                   ? '🔒 Protegido: Requiere PIN de Supervisor para revelar desgloses'
-                  : `Inicial ($${activeShift.initialAmount.toFixed(2)}) + Efectivo ($${currentShiftMetrics.cashSales.toFixed(2)}) + Recargas ($${currentShiftMetrics.rechargesTotal.toFixed(2)}) + Taller ($${currentShiftMetrics.repairsTotal.toFixed(2)}) - Salidas ($${currentShiftMetrics.pettyCashTotal.toFixed(2)})`
+                  : `Inicial ($${(inspectedShift ? inspectedShift.initialAmount : 0).toFixed(2)}) + Efectivo ($${currentShiftMetrics.cashSales.toFixed(2)}) + Recargas ($${currentShiftMetrics.rechargesTotal.toFixed(2)}) + Taller ($${currentShiftMetrics.repairsTotal.toFixed(2)}) - Salidas ($${currentShiftMetrics.pettyCashTotal.toFixed(2)})`
                 }
               </p>
             </div>
@@ -488,7 +561,14 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <FileText className="w-4 h-4 text-cyan-400" />
-                <span>Desglose de Transacciones del Turno Activo</span>
+                <span>
+                  {inspectedShift
+                    ? (inspectedShift.status === 'open' 
+                        ? 'Desglose de Transacciones del Turno Activo' 
+                        : `Desglose de Transacciones - Turno #${inspectedShift.id.slice(-6)} (${inspectedShift.cashierName})`)
+                    : 'Desglose de Transacciones del Turno Activo'
+                  }
+                </span>
               </h3>
               <span className="text-xs font-mono text-slate-400">
                 Total Transacciones: {currentShiftMetrics.salesCount + currentShiftMetrics.rechargesCount + currentShiftMetrics.repairsCount + currentShiftMetrics.pettyCashCount}
@@ -519,15 +599,66 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
                   ) : (
                     <>
                       {currentShiftMetrics.shiftSalesList.map(s => (
-                        <tr key={s.id} className="hover:bg-slate-800/40">
-                          <td className="py-2.5 px-3 font-mono text-slate-400">
+                        <tr key={s.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-2.5 px-3 font-mono text-slate-400 whitespace-nowrap">
                             {new Date(s.createdAt || s.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-cyan-400">
-                            Venta #{s.ticketNumber}
-                          </td>
-                          <td className="py-2.5 px-3 text-slate-300">{s.customerName || 'Cliente Contado'}</td>
                           <td className="py-2.5 px-3">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedSaleForTicket(s)}
+                              className="group text-left font-mono font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+                              title="Haga clic para ver el ticket original de esta venta"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition-transform shrink-0" />
+                              <span className="underline decoration-dotted underline-offset-2">
+                                Venta #{s.ticketNumber}
+                              </span>
+                              <ExternalLink className="w-3 h-3 opacity-60 group-hover:opacity-100 transition-opacity shrink-0" />
+                            </button>
+
+                            {/* Products Details from original sale */}
+                            {s.items && s.items.length > 0 ? (
+                              s.items.length === 1 ? (
+                                <div className="text-[11px] text-slate-300 font-normal mt-0.5 max-w-[280px]">
+                                  <div className="truncate" title={`${s.items[0].name} × ${s.items[0].quantity}`}>
+                                    {s.items[0].name} × {s.items[0].quantity}
+                                  </div>
+                                  <div className="text-[10px] text-emerald-400 font-mono font-semibold mt-0.5">
+                                    {isMasked ? '••••••' : `$${s.total.toFixed(2)}`}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-[11px] text-slate-300 font-normal space-y-0.5 mt-0.5">
+                                  {s.items.map((item, idx) => (
+                                    <div 
+                                      key={idx} 
+                                      className="truncate max-w-[280px] text-slate-300 flex items-center gap-1" 
+                                      title={`${item.name} × ${item.quantity}`}
+                                    >
+                                      <span className="text-slate-500">•</span>
+                                      <span className="truncate">{item.name}</span>
+                                      <span className="text-slate-400 font-mono text-[10px] shrink-0">× {item.quantity}</span>
+                                    </div>
+                                  ))}
+                                  <div className="text-[10px] text-emerald-400 font-mono font-semibold pt-0.5">
+                                    {isMasked ? '••••••' : `Total: $${s.total.toFixed(2)}`}
+                                  </div>
+                                </div>
+                              )
+                            ) : (
+                              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                                {isMasked ? '••••••' : `Total: $${s.total.toFixed(2)}`}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-300">
+                            <div>{s.customerName || 'Cliente Contado'}</div>
+                            {s.customerPhone && (
+                              <div className="text-[10px] text-slate-400 font-mono">{s.customerPhone}</div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
                             <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
                               s.paymentMethod === 'Efectivo' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
                               s.paymentMethod === 'Tarjeta' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
@@ -536,47 +667,95 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
                               {s.paymentMethod}
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 text-right font-extrabold text-white font-mono">
+                          <td className="py-2.5 px-3 text-right font-extrabold text-white font-mono whitespace-nowrap">
                             {isMasked ? '••••••' : `$${s.total.toFixed(2)}`}
                           </td>
                         </tr>
                       ))}
 
                       {currentShiftMetrics.shiftRechargesList.map(r => (
-                        <tr key={r.id} className="hover:bg-slate-800/40">
-                          <td className="py-2.5 px-3 font-mono text-slate-400">
+                        <tr key={r.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-2.5 px-3 font-mono text-slate-400 whitespace-nowrap">
                             {new Date(r.createdAt || r.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-purple-400">
-                            Recarga {r.operator} ({r.phoneNumber})
-                          </td>
-                          <td className="py-2.5 px-3 text-slate-300">Prepago {r.operator}</td>
                           <td className="py-2.5 px-3">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedRechargeForTicket(r)}
+                              className="group text-left font-mono font-bold text-purple-400 hover:text-purple-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+                              title="Haga clic para ver el comprobante original de esta recarga"
+                            >
+                              <Smartphone className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform shrink-0" />
+                              <span className="underline decoration-dotted underline-offset-2">
+                                Recarga {r.operator} {r.phoneNumber ? `(${r.phoneNumber})` : ''}
+                              </span>
+                              <ExternalLink className="w-3 h-3 opacity-60 group-hover:opacity-100 transition-opacity shrink-0" />
+                            </button>
+                            <div className="text-[11px] text-slate-300 font-normal mt-0.5">
+                              Prepago {r.operator}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              Efectivo
+                            </div>
+                            <div className="text-[10px] text-emerald-400 font-mono font-semibold">
+                              {isMasked ? '••••••' : `$${r.salePrice.toFixed(2)}`}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-300">
+                            <div>{r.phoneNumber ? `Línea ${r.phoneNumber}` : `Prepago ${r.operator}`}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">Operador: {r.operator}</div>
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
                             <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                               Efectivo
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 text-right font-extrabold text-white font-mono">
+                          <td className="py-2.5 px-3 text-right font-extrabold text-white font-mono whitespace-nowrap">
                             {isMasked ? '••••••' : `$${r.salePrice.toFixed(2)}`}
                           </td>
                         </tr>
                       ))}
 
                       {currentShiftMetrics.shiftRepairsList.map(rep => (
-                        <tr key={rep.id} className="hover:bg-slate-800/40">
-                          <td className="py-2.5 px-3 font-mono text-slate-400">
+                        <tr key={rep.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-2.5 px-3 font-mono text-slate-400 whitespace-nowrap">
                             {new Date(rep.receivedDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-amber-400">
-                            Taller #{rep.ticketNumber} ({rep.deviceBrand})
-                          </td>
-                          <td className="py-2.5 px-3 text-slate-300">{rep.customerName}</td>
                           <td className="py-2.5 px-3">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedRepairForDetail(rep)}
+                              className="group text-left font-mono font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+                              title="Haga clic para ver la orden de taller original"
+                            >
+                              <Wrench className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
+                              <span className="underline decoration-dotted underline-offset-2">
+                                Taller #{rep.ticketNumber} ({rep.deviceBrand})
+                              </span>
+                              <ExternalLink className="w-3 h-3 opacity-60 group-hover:opacity-100 transition-opacity shrink-0" />
+                            </button>
+                            <div className="text-[11px] text-slate-300 font-normal mt-0.5 truncate max-w-[280px]" title={`${rep.deviceModel} ${rep.issueDescription ? `• ${rep.issueDescription}` : ''}`}>
+                              {rep.deviceModel} {rep.issueDescription ? `• ${rep.issueDescription}` : ''}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              Anticipo Efectivo
+                            </div>
+                            <div className="text-[10px] text-emerald-400 font-mono font-semibold">
+                              {isMasked ? '••••••' : `$${(rep.advancePayment || 0).toFixed(2)}`}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-300">
+                            <div>{rep.customerName}</div>
+                            {rep.customerPhone && (
+                              <div className="text-[10px] text-slate-400 font-mono">{rep.customerPhone}</div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
                             <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                               Anticipo Efectivo
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 text-right font-extrabold text-white font-mono">
+                          <td className="py-2.5 px-3 text-right font-extrabold text-white font-mono whitespace-nowrap">
                             {isMasked ? '••••••' : `$${(rep.advancePayment || 0).toFixed(2)}`}
                           </td>
                         </tr>
@@ -611,7 +790,6 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
             </div>
           </div>
         </div>
-      )}
 
       {/* SECTION 3: SHIFT HISTORY TABLE */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
@@ -634,12 +812,13 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
                 <th className="py-2.5 px-3 text-right">Teórico Gaveta</th>
                 <th className="py-2.5 px-3 text-right">Contado Físico</th>
                 <th className="py-2.5 px-3 text-right">Diferencia (Cuadre)</th>
+                <th className="py-2.5 px-3 text-center">Desglose</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
               {cashShifts.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-6 text-center text-slate-500 font-mono">
+                  <td colSpan={9} className="py-6 text-center text-slate-500 font-mono">
                     No hay registros anteriores de arqueos de caja.
                   </td>
                 </tr>
@@ -647,9 +826,15 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
                 cashShifts.map(s => {
                   const isClosed = s.status === 'closed';
                   const diff = s.difference ?? 0;
+                  const isSelected = inspectedShift?.id === s.id;
 
                   return (
-                    <tr key={s.id} className="hover:bg-slate-800/40">
+                    <tr 
+                      key={s.id} 
+                      className={`hover:bg-slate-800/50 transition-colors ${
+                        isSelected ? 'bg-cyan-950/30 border-l-2 border-cyan-400' : ''
+                      }`}
+                    >
                       <td className="py-2.5 px-3">
                         <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
                           s.status === 'open'
@@ -689,6 +874,46 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
                         ) : (
                           <span className="text-red-400">-${Math.abs(diff).toFixed(2)} (Faltante)</span>
                         )}
+                      </td>
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedShiftId(s.id);
+                              const el = document.getElementById('desglose-transacciones-turno');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer inline-flex items-center gap-1 ${
+                              isSelected
+                                ? 'bg-cyan-500 text-slate-950 font-black shadow-md'
+                                : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30'
+                            }`}
+                            title="Haga clic para ver el desglose de transacciones de este turno"
+                          >
+                            <Eye className="w-3 h-3" />
+                            <span>{isSelected ? 'Viendo' : 'Ver Detalle'}</span>
+                          </button>
+
+                          {onNavigateToSalesHistory && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onNavigateToSalesHistory({
+                                  cashierName: s.cashierName,
+                                  startDate: s.openedAt,
+                                  endDate: s.closedAt || new Date().toISOString(),
+                                  shiftId: s.id
+                                });
+                              }}
+                              className="px-2.5 py-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 rounded-lg text-[10px] font-bold transition-all cursor-pointer inline-flex items-center gap-1"
+                              title="Consultar ventas de este turno en el Historial de Ventas"
+                            >
+                              <Receipt className="w-3 h-3" />
+                              <span>Ver Ventas</span>
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -873,6 +1098,131 @@ export const CashClosureModule: React.FC<CashClosureModuleProps> = ({
           currentShiftId={activeShift?.id}
           onRegisterExpense={onRegisterPettyCashExpense}
         />
+      )}
+
+      {/* ORIGINAL SALE TICKET MODAL */}
+      {selectedSaleForTicket && (
+        <TicketPrint
+          sale={selectedSaleForTicket}
+          onClose={() => setSelectedSaleForTicket(null)}
+        />
+      )}
+
+      {/* ORIGINAL RECHARGE TICKET MODAL */}
+      {selectedRechargeForTicket && (
+        <RechargeTicketModal
+          isOpen={!!selectedRechargeForTicket}
+          onClose={() => setSelectedRechargeForTicket(null)}
+          recharge={selectedRechargeForTicket}
+        />
+      )}
+
+      {/* ORIGINAL REPAIR ORDER DETAIL MODAL */}
+      {selectedRepairForDetail && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 text-slate-100 space-y-4 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Wrench className="w-5 h-5 text-amber-400" />
+                <h3 className="text-base font-bold text-white">
+                  Orden de Taller #{selectedRepairForDetail.ticketNumber}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedRepairForDetail(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Cerrar y volver al arqueo"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
+                <div>
+                  <p className="text-slate-400 text-[10px] font-semibold uppercase">Dispositivo</p>
+                  <p className="font-bold text-white text-sm">{selectedRepairForDetail.deviceBrand} {selectedRepairForDetail.deviceModel}</p>
+                  {selectedRepairForDetail.serialNumber && (
+                    <p className="text-slate-400 font-mono text-[10px] mt-0.5">IMEI/Serie: {selectedRepairForDetail.serialNumber}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-slate-400 text-[10px] font-semibold uppercase">Estado Actual</p>
+                  <span className={`inline-block mt-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${getRepairStatusBadge(selectedRepairForDetail.status)}`}>
+                    {selectedRepairForDetail.status}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
+                <div>
+                  <p className="text-slate-400 text-[10px] font-semibold uppercase">Cliente</p>
+                  <p className="font-bold text-white">{selectedRepairForDetail.customerName}</p>
+                  <p className="text-slate-400 font-mono">{selectedRepairForDetail.customerPhone}</p>
+                  {selectedRepairForDetail.customerDocumentId && (
+                    <p className="text-slate-400 font-mono text-[10px]">ID: {selectedRepairForDetail.customerDocumentId}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-slate-400 text-[10px] font-semibold uppercase">Valores Registrados</p>
+                  <p className="text-slate-300">Costo Est.: <span className="font-bold font-mono">${(selectedRepairForDetail.estimatedCost || 0).toFixed(2)}</span></p>
+                  <p className="text-emerald-400 font-semibold">Anticipo: <span className="font-bold font-mono">${(selectedRepairForDetail.advancePayment || 0).toFixed(2)}</span></p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-slate-400 font-semibold mb-1 uppercase text-[10px]">Descripción de la Falla Reportada</p>
+                <p className="bg-slate-800 p-2.5 rounded-xl text-slate-200">{selectedRepairForDetail.issueDescription}</p>
+              </div>
+
+              {selectedRepairForDetail.technicianNotes && (
+                <div>
+                  <p className="text-purple-300 font-semibold mb-1 uppercase text-[10px]">Notas del Técnico</p>
+                  <p className="bg-purple-950/40 border border-purple-500/30 p-2.5 rounded-xl text-purple-200">
+                    {selectedRepairForDetail.technicianNotes}
+                  </p>
+                </div>
+              )}
+
+              {/* Photos Preview if available */}
+              {(selectedRepairForDetail.devicePhotoUrl || selectedRepairForDetail.documentPhotoUrl) && (
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  {selectedRepairForDetail.devicePhotoUrl && (
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Foto del Equipo</p>
+                      <img
+                        src={selectedRepairForDetail.devicePhotoUrl}
+                        alt="Equipo"
+                        className="w-full h-24 object-contain bg-black rounded-xl border border-slate-700"
+                      />
+                    </div>
+                  )}
+                  {selectedRepairForDetail.documentPhotoUrl && (
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Documento ID</p>
+                      <img
+                        src={selectedRepairForDetail.documentPhotoUrl}
+                        alt="Documento"
+                        className="w-full h-24 object-contain bg-black rounded-xl border border-slate-700"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedRepairForDetail(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold cursor-pointer"
+              >
+                Cerrar y Volver al Arqueo
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

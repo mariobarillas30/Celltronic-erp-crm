@@ -15,7 +15,8 @@ import {
   Wallet,
   Shield,
   Layers,
-  CloudUpload
+  CloudUpload,
+  Receipt
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { UserRole } from '../../types';
@@ -40,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const navItems = [
     { id: 'pos', label: 'Ventas (POS)', icon: ShoppingCart },
+    { id: 'sales_history', label: 'Historial de Ventas', icon: Receipt },
     { id: 'arqueo', label: 'Arqueo & Cierre de Caja', icon: Calculator },
     { id: 'inventory', label: 'Inventario & Proveedores', icon: Package },
     { id: 'repairs', label: 'Taller / Reparaciones', icon: Wrench },
@@ -54,13 +56,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Dynamic Filtering: If user has explicit allowedModules defined, respect those in real-time
   const allowedModulesList = currentUser?.allowedModules || (
-    isCEO ? ['pos', 'arqueo', 'inventory', 'repairs', 'customers', 'recharges', 'promotions', 'kpis', 'petty_cash', 'users', 'backups'] :
-    role === 'Gerente' || role === 'Supervisor' ? ['pos', 'arqueo', 'inventory', 'repairs', 'customers', 'recharges', 'promotions', 'kpis', 'backups'] :
+    isCEO ? ['pos', 'sales_history', 'arqueo', 'inventory', 'repairs', 'customers', 'recharges', 'promotions', 'kpis', 'petty_cash', 'users', 'backups'] :
+    role === 'Gerente' || role === 'Supervisor' ? ['pos', 'sales_history', 'arqueo', 'inventory', 'repairs', 'customers', 'recharges', 'promotions', 'kpis', 'backups'] :
     role === 'Técnico' ? ['repairs', 'inventory', 'customers'] :
-    ['pos', 'arqueo', 'inventory', 'repairs', 'customers', 'recharges']
+    ['pos', 'sales_history', 'arqueo', 'inventory', 'repairs', 'customers', 'recharges']
   );
 
   const allowedNavItems = navItems.filter(item => {
+    if (item.id === 'sales_history') {
+      return allowedModulesList.includes('sales_history') || allowedModulesList.includes('pos');
+    }
     if (item.id === 'petty_cash') {
       return isCEO || allowedModulesList.includes('petty_cash');
     }
