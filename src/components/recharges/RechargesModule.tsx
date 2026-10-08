@@ -24,7 +24,8 @@ import {
   Save,
   Info,
   CheckCircle,
-  Sliders
+  Sliders,
+  Calendar
 } from 'lucide-react';
 import { 
   Recharge, 
@@ -63,6 +64,7 @@ import { AddBalanceModal } from './AddBalanceModal';
 import { AdjustBalanceModal } from './AdjustBalanceModal';
 import { ManageDenominationsModal } from './ManageDenominationsModal';
 import { RechargeTicketModal } from './RechargeTicketModal';
+import { RechargesDailyReport } from './RechargesDailyReport';
 
 interface RechargesModuleProps {
   recharges: Recharge[];
@@ -77,8 +79,9 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
 }) => {
   const { currentUser, isCEO, role } = useAuth();
 
-  // Active view tab for CEO (Terminal de Venta, Cuadre/Inventario, % de Ganancia, Auditoría de Saldo, Historial Financiero, Historial de Ajustes)
-  const [ceoActiveView, setCeoActiveView] = useState<'terminal' | 'balances' | 'commissions' | 'logs' | 'adjustments' | 'history'>('terminal');
+  // Active view tab for CEO (Terminal de Venta, Cuadre/Inventario, Reporte Diario, % de Ganancia, Auditoría de Saldo, Historial Financiero, Historial de Ajustes)
+  const [ceoActiveView, setCeoActiveView] = useState<'terminal' | 'balances' | 'daily_report' | 'commissions' | 'logs' | 'adjustments' | 'history'>('terminal');
+  const [cashierActiveView, setCashierActiveView] = useState<'terminal' | 'daily_report'>('terminal');
 
   // Form states
   const [operator, setOperator] = useState<RechargeOperator>('Claro');
@@ -437,13 +440,13 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
   }, [isCEO, balances, recharges, financials, commissions]);
 
   // ==========================================
-  // VIEW: CASHIER (TERMINAL DE VENTA ONLY)
+  // VIEW: CASHIER (TERMINAL DE VENTA & REPORTE DIARIO)
   // ==========================================
   if (!isCEO) {
     return (
-      <div className="max-w-3xl mx-auto space-y-6">
-        {/* Cashier Header Banner */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex items-center justify-between gap-4">
+      <div className="space-y-6">
+        {/* Cashier Header Banner & Navigation Switcher */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center shadow-lg shadow-cyan-500/10">
               <SmartphoneCharging className="w-6 h-6" />
@@ -454,163 +457,207 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
                   Venta de Recargas
                 </h2>
                 <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                  Terminal de Venta
+                  {cashierActiveView === 'terminal' ? 'Terminal de Venta' : 'Reporte Histórico Diario'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Seleccione compañía y denominación
+                {cashierActiveView === 'terminal'
+                  ? 'Seleccione compañía y denominación para vender'
+                  : 'Consulta de ventas de recargas realizadas diariamente por compañía'}
               </p>
             </div>
           </div>
+
+          {/* Switcher Buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCashierActiveView('terminal')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                cashierActiveView === 'terminal'
+                  ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30'
+                  : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
+              }`}
+            >
+              <Smartphone className="w-4 h-4" />
+              <span>Terminal de Venta</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCashierActiveView('daily_report')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                cashierActiveView === 'daily_report'
+                  ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30'
+                  : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
+              }`}
+            >
+              <Calendar className="w-4 h-4" />
+              <span>Reporte Diario Ventas</span>
+            </button>
+          </div>
         </div>
 
-        {/* Cashier Dedicated Sales Terminal Card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl">
-          <div className="flex items-center gap-3 pb-4 border-b border-slate-800">
-            <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center">
-              <SmartphoneCharging className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-white">Vender Recarga Telefónica</h3>
-              <p className="text-xs text-slate-400">Complete los datos de la recarga solicitada por el cliente</p>
+        {/* View Content */}
+        {cashierActiveView === 'daily_report' ? (
+          <RechargesDailyReport
+            recharges={recharges}
+            onOpenTicket={(rec) => {
+              setSelectedTicketRecharge(rec);
+              setIsTicketModalOpen(true);
+            }}
+            isCEO={false}
+          />
+        ) : (
+          <div className="max-w-3xl mx-auto space-y-6">
+            {/* Cashier Dedicated Sales Terminal Card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl">
+              <div className="flex items-center gap-3 pb-4 border-b border-slate-800">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                  <SmartphoneCharging className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Vender Recarga Telefónica</h3>
+                  <p className="text-xs text-slate-400">Complete los datos de la recarga solicitada por el cliente</p>
+                </div>
+              </div>
+
+              {saleError && (
+                <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold flex items-center gap-3 animate-in fade-in">
+                  <AlertCircle className="w-5 h-5 shrink-0" />
+                  <span>{saleError}</span>
+                </div>
+              )}
+
+              {saleSuccess && (
+                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold flex items-center gap-3 animate-in fade-in">
+                  <CheckCircle2 className="w-5 h-5 shrink-0" />
+                  <span>{saleSuccess}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleProcessSale} className="space-y-6 text-xs">
+                {/* 1. Operator Selection */}
+                <div>
+                  <label className="block text-slate-300 font-bold mb-2">
+                    1. Compañía Telefónica *
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                    {ALL_RECHARGE_OPERATORS.map((op) => (
+                      <button
+                        key={op}
+                        type="button"
+                        onClick={() => {
+                          setOperator(op);
+                          setSaleError(null);
+                        }}
+                        className={`py-3 px-2 rounded-2xl font-bold border text-center transition-all cursor-pointer text-xs flex flex-col items-center justify-center gap-1 ${
+                          operator === op
+                            ? op === 'Claro'
+                              ? 'bg-red-600 border-red-500 text-white shadow-lg shadow-red-600/30 ring-2 ring-red-400/50'
+                              : op === 'Tigo'
+                              ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-600/30 ring-2 ring-blue-400/50'
+                              : op === 'Movistar'
+                              ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-600/30 ring-2 ring-emerald-400/50'
+                              : op === 'Digicel'
+                              ? 'bg-amber-600 border-amber-500 text-white shadow-lg shadow-amber-600/30 ring-2 ring-amber-400/50'
+                              : 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-600/30 ring-2 ring-purple-400/50'
+                            : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800'
+                        }`}
+                      >
+                        <span className="font-extrabold">{op}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 2. Fast Denominations Selection */}
+                <div>
+                  <label className="block text-slate-300 font-bold mb-2">
+                    2. Monto de Recarga (Denominaciones Autorizadas) *
+                  </label>
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                    {availableDenominations.map((d) => {
+                      const isSelected = selectedDenominationCents === d.amountCents;
+
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => handleSelectDenomination(d.amountCents)}
+                          className={`py-2.5 px-2 rounded-xl font-mono font-bold text-center border transition-all cursor-pointer text-xs ${
+                            isSelected
+                              ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md shadow-cyan-500/20 scale-[1.03] ring-2 ring-cyan-400/50'
+                              : 'bg-slate-800 border-slate-700 text-slate-200 hover:text-white hover:bg-slate-700'
+                          }`}
+                        >
+                          {formatCents(d.amountCents)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 3. Customer Phone Number */}
+                <div>
+                  <label className="block text-slate-300 font-bold mb-2">
+                    3. Número de Teléfono del Cliente *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      placeholder="ej. 7123-4567"
+                      required
+                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-2xl text-white font-mono text-lg font-bold placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                    />
+                    {phoneNumber && (
+                      <button
+                        type="button"
+                        onClick={() => setPhoneNumber('')}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-lg font-bold"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 4. Notes / Package */}
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-2">
+                    Notas / Paquete Opcional
+                  </label>
+                  <input
+                    type="text"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="ej. Paquete Todo Incluido 5 Días"
+                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 text-xs"
+                  />
+                </div>
+
+                {/* Submit Sale Button */}
+                <button
+                  type="submit"
+                  disabled={isProcessingSale || selectedDenominationCents <= 0 || !phoneNumber.trim()}
+                  className="w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-cyan-600/30 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {isProcessingSale ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-5 h-5" />
+                  )}
+                  <span>
+                    {selectedDenominationCents > 0
+                      ? `Vender Recarga ${formatCents(selectedDenominationCents)}`
+                      : 'Seleccione un Monto para Vender'}
+                  </span>
+                </button>
+              </form>
             </div>
           </div>
-
-          {saleError && (
-            <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold flex items-center gap-3 animate-in fade-in">
-              <AlertCircle className="w-5 h-5 shrink-0" />
-              <span>{saleError}</span>
-            </div>
-          )}
-
-          {saleSuccess && (
-            <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold flex items-center gap-3 animate-in fade-in">
-              <CheckCircle2 className="w-5 h-5 shrink-0" />
-              <span>{saleSuccess}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleProcessSale} className="space-y-6 text-xs">
-            {/* 1. Operator Selection */}
-            <div>
-              <label className="block text-slate-300 font-bold mb-2">
-                1. Compañía Telefónica *
-              </label>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                {ALL_RECHARGE_OPERATORS.map((op) => (
-                  <button
-                    key={op}
-                    type="button"
-                    onClick={() => {
-                      setOperator(op);
-                      setSaleError(null);
-                    }}
-                    className={`py-3 px-2 rounded-2xl font-bold border text-center transition-all cursor-pointer text-xs flex flex-col items-center justify-center gap-1 ${
-                      operator === op
-                        ? op === 'Claro'
-                          ? 'bg-red-600 border-red-500 text-white shadow-lg shadow-red-600/30 ring-2 ring-red-400/50'
-                          : op === 'Tigo'
-                          ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-600/30 ring-2 ring-blue-400/50'
-                          : op === 'Movistar'
-                          ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-600/30 ring-2 ring-emerald-400/50'
-                          : op === 'Digicel'
-                          ? 'bg-amber-600 border-amber-500 text-white shadow-lg shadow-amber-600/30 ring-2 ring-amber-400/50'
-                          : 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-600/30 ring-2 ring-purple-400/50'
-                        : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800'
-                    }`}
-                  >
-                    <span className="font-extrabold">{op}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 2. Fast Denominations Selection */}
-            <div>
-              <label className="block text-slate-300 font-bold mb-2">
-                2. Monto de Recarga (Denominaciones Autorizadas) *
-              </label>
-              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                {availableDenominations.map((d) => {
-                  const isSelected = selectedDenominationCents === d.amountCents;
-
-                  return (
-                    <button
-                      key={d.id}
-                      type="button"
-                      onClick={() => handleSelectDenomination(d.amountCents)}
-                      className={`py-2.5 px-2 rounded-xl font-mono font-bold text-center border transition-all cursor-pointer text-xs ${
-                        isSelected
-                          ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md shadow-cyan-500/20 scale-[1.03] ring-2 ring-cyan-400/50'
-                          : 'bg-slate-800 border-slate-700 text-slate-200 hover:text-white hover:bg-slate-700'
-                      }`}
-                    >
-                      {formatCents(d.amountCents)}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 3. Customer Phone Number */}
-            <div>
-              <label className="block text-slate-300 font-bold mb-2">
-                3. Número de Teléfono del Cliente *
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  placeholder="ej. 7123-4567"
-                  required
-                  className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-2xl text-white font-mono text-lg font-bold placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
-                />
-                {phoneNumber && (
-                  <button
-                    type="button"
-                    onClick={() => setPhoneNumber('')}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-lg font-bold"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* 4. Notes / Package */}
-            <div>
-              <label className="block text-slate-400 font-semibold mb-2">
-                Notas / Paquete Opcional
-              </label>
-              <input
-                type="text"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="ej. Paquete Todo Incluido 5 Días"
-                className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 text-xs"
-              />
-            </div>
-
-            {/* Submit Sale Button */}
-            <button
-              type="submit"
-              disabled={isProcessingSale || selectedDenominationCents <= 0 || !phoneNumber.trim()}
-              className="w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-cyan-600/30 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {isProcessingSale ? (
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <CheckCircle2 className="w-5 h-5" />
-              )}
-              <span>
-                {selectedDenominationCents > 0
-                  ? `Vender Recarga ${formatCents(selectedDenominationCents)}`
-                  : 'Seleccione un Monto para Vender'}
-              </span>
-            </button>
-          </form>
-        </div>
+        )}
 
         {/* Printable Ticket Receipt Modal */}
         <RechargeTicketModal
@@ -682,6 +729,18 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
           </button>
 
           <button
+            onClick={() => setCeoActiveView('daily_report')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer border ${
+              ceoActiveView === 'daily_report'
+                ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md shadow-cyan-500/20'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+            }`}
+          >
+            <Calendar className="w-4 h-4 text-cyan-400" />
+            <span>Reporte Diario Ventas</span>
+          </button>
+
+          <button
             onClick={() => setCeoActiveView('commissions')}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer border ${
               ceoActiveView === 'commissions'
@@ -719,6 +778,18 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
         >
           <Wallet className="w-4 h-4" />
           <span>Inventario & Cuadre por Compañía</span>
+        </button>
+
+        <button
+          onClick={() => setCeoActiveView('daily_report')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+            ceoActiveView === 'daily_report'
+              ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800'
+          }`}
+        >
+          <Calendar className="w-4 h-4" />
+          <span>Reporte Diario de Ventas</span>
         </button>
 
         <button
@@ -1329,6 +1400,20 @@ export const RechargesModule: React.FC<RechargesModuleProps> = ({
               </table>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* VIEW: REPORTE HISTÓRICO DIARIO DE VENTAS DE RECARGAS POR COMPAÑÍA */}
+      {ceoActiveView === 'daily_report' && (
+        <div className="animate-in fade-in">
+          <RechargesDailyReport
+            recharges={recharges}
+            onOpenTicket={(rec) => {
+              setSelectedTicketRecharge(rec);
+              setIsTicketModalOpen(true);
+            }}
+            isCEO={true}
+          />
         </div>
       )}
 
